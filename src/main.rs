@@ -5,12 +5,11 @@ const RAM_SWITCHABLE_ADDR: u16 = 0xA000;
 const RAM_BASE_ADDR: u16 = 0xC000;
 const RAM_ECHO_ADDR: u16 = 0xE000;
 const SPRITE_ATTRIBUTE_ADDR: u16 = 0xFE00;
-const EMPTY_1_ADDR: u16 = 0xFEA0;
-const IO_PORTS_ADDR: u16 = 0xFF00;
-const EMPTY_2_ADDR: u16 = 0xFF4C;
-const RAM_INTERNAL: u16 = 0xFF80;
+
 const RAM_BANK_SIZE: usize = 0x2000;
 const ROM_BANK_SIZE: usize = 0x4000;
+const VRAM_SIZE: usize = 0x2000;
+const INTERNAL_SIZE: usize = 0x200;
 
 type Addr = u16;
 type Byte = u8;
@@ -18,48 +17,121 @@ type MutMem<'a> = &'a mut [Byte];
 
 struct Memory<T: BankController> {
     mapper: T,
+    vram: Vec<Byte>,
+    internal: Vec<Byte>,
 }
 impl <T: BankController>Memory<T> {
-    pub fn new(mapper: T) -> Self { Self {mapper: mapper} }
+    pub fn new(mapper: T) -> Self { 
+        Self { mapper: mapper, vram: vec![0; VRAM_SIZE], internal: vec![0; INTERNAL_SIZE]} 
+    }
 
+    /*
+     * WRITEs
+     */
     pub fn write(&mut self, addr: Addr, byte: Byte) {
-        let mbc = &mut self.mapper;
-        match mbc.get_addr_type(addr) {
-            AddrType::Config => 
-                mbc.on_config(addr, byte),
-            AddrType::ROMSwap | AddrType::RAMSwap => 
-                mbc.on_swap(addr, byte),
-            AddrType::RAM => 
-                {},
-            AddrType::ROM => 
-                panic!("Write to ROM at 0x{:X}", addr),
+        // BASE ROM | 0x0000-0x3FFF
+        if addr < ROM_SWITCHABLE_ADDR 
+            { self.write_base_rom(addr, addr as usize, byte) } 
+        // SWITCHABLE ROM | 0x4000-0x7FFF
+        else if addr < VRAM_ADDR 
+            { self.write_switchable_rom(addr, (addr - ROM_SWITCHABLE_ADDR) as usize, byte) }
+         // VRAM | 0x8000-0x9FFF
+        else if addr < RAM_SWITCHABLE_ADDR 
+            { self.write_vram(addr, (addr - VRAM_ADDR) as usize, byte) } 
+         // SWITCHABLE RAM | 0xA000-0xBFFF
+        else if addr < RAM_BASE_ADDR 
+            { self.write_switchable_ram(addr, (addr - RAM_SWITCHABLE_ADDR) as usize, byte) }
+        // BASE RAM | 0xC000 - 0xDFFF
+        else if addr < RAM_ECHO_ADDR 
+            { self.write_base_ram(addr, (addr - RAM_BASE_ADDR) as usize, byte) }
+        // ECHO OF BASE RAM | 0xE000 - 0xFE00
+        else if addr < SPRITE_ATTRIBUTE_ADDR 
+            { self.write_base_ram(addr, (addr - RAM_ECHO_ADDR) as usize, byte) }
+        // Rest 0xFE00-0xFFFF
+        else 
+            { self.write_internal(addr, (addr - SPRITE_ATTRIBUTE_ADDR) as usize, byte) }
+    }
+
+    fn write_base_rom(&mut self, addr: Addr, _: usize, value: Byte) {
+        match self.mapper.get_addr_type(addr) {
+            AddrType::Status =>  self.mapper.on_status(addr, value),
+            AddrType::Write => panic!("Attempt to write to ROM at 0x{:X}", addr),
         }
     }
-    pub fn read(&mut self, addr: Addr) -> Byte {
-        let mbc = &mut self.mapper;
-        if addr < ROM_SWITCHABLE_ADDR { // BASE ROM | 0x0000-0x3FFF
-            return mbc.get_base_rom().unwrap()[addr as usize]
-        } else if addr < VRAM_ADDR { // SWITCHABLE ROM | 0x4000-0x7FFF
-            return mbc.get_switchable_rom().unwrap()[(addr - 0x4000) as usize]
-        } else if addr < RAM_SWITCHABLE_ADDR { // VRAM | 0x8000-0x9FFF
-            return 69
-        } else if addr < RAM_BASE_ADDR { // SWITCHABLE RAM | 0xA000-0xBFFF
-            return mbc.get_switchable_ram().unwrap()[(addr - 0xA000) as usize]
-        } else if addr < RAM_ECHO_ADDR { // BASE RAM | 0xC000 - 0xDFFF
-            return mbc.get_base_ram().unwrap()[(addr - 0xC000) as usize]
-        } else if addr < SPRITE_ATTRIBUTE_ADDR { // ECHO OF BASE RAM | 0xE000 - 0xFE00
-            return mbc.get_base_ram().unwrap()[(addr - 0xE000) as usize]
-        } else if addr < EMPTY_1_ADDR { // Sprite Attribute Memory | 0xFE00 - 0xFEA0
-            return 21
-        } else if addr < IO_PORTS_ADDR { // Empty 1 | 0xFEA0 - 0xFF00
-            return 37
-        } else if addr < EMPTY_2_ADDR { // IO Ports | 0xFF00 - 0xFF4C
-            return 21
-        } else if addr < RAM_INTERNAL { // EMPTY 2 | 0xFF4C - 0xFF80
-            return 37
-        } else { // Internal RAM | 0xFF80 - 0xFFFF
-            return 21
+
+    fn write_switchable_rom(&mut self, addr: Addr, _: usize, value: Byte) {
+        match self.mapper.get_addr_type(addr) {
+            AddrType::Status => self.mapper.on_status(addr, value),
+            AddrType::Write => panic!("Attempt to write to ROM at 0x{:X}", addr),
         }
+    }
+
+    fn write_vram(&mut self, _: Addr, offset: usize, value: Byte) { 
+        self.vram[offset] = value;
+    }
+
+    fn write_switchable_ram(&mut self, addr: Addr, offset: usize, value: Byte) {
+        match self.mapper.get_addr_type(addr) {
+            AddrType::Status => panic!("Unable to send status at RAM address 0x{:X}", addr),
+            AddrType::Write => self.mapper.get_switchable_ram().unwrap()[offset] = value,
+        }
+    }
+
+    fn write_base_ram(&mut self, addr: Addr, offset: usize, value: Byte) {
+        match self.mapper.get_addr_type(addr) {
+            AddrType::Status => panic!("Unable to send status at RAM address 0x{:X}", addr),
+            AddrType::Write => self.mapper.get_base_ram().unwrap()[offset] = value,
+        }    
+    }
+
+    fn write_internal(&mut self, _: Addr, offset: usize, value: Byte) {
+        self.internal[offset] = value;
+    }
+
+    /*
+     * READs
+     */
+    pub fn read(&mut self, addr: Addr) -> Byte {
+        // BASE ROM | 0x0000-0x3FFF
+        if addr < ROM_SWITCHABLE_ADDR 
+            { self.read_base_rom(addr, addr as usize) } 
+        // SWITCHABLE ROM | 0x4000-0x7FFF
+        else if addr < VRAM_ADDR 
+            { self.read_switchable_rom(addr, (addr - ROM_SWITCHABLE_ADDR) as usize) }
+         // VRAM | 0x8000-0x9FFF
+        else if addr < RAM_SWITCHABLE_ADDR 
+            { self.read_vram(addr, (addr - VRAM_ADDR) as usize) } 
+         // SWITCHABLE RAM | 0xA000-0xBFFF
+        else if addr < RAM_BASE_ADDR 
+            { self.read_switchable_ram(addr, (addr - RAM_SWITCHABLE_ADDR) as usize) }
+        // BASE RAM | 0xC000 - 0xDFFF
+        else if addr < RAM_ECHO_ADDR 
+            { self.read_base_ram(addr, (addr - RAM_BASE_ADDR) as usize) }
+        // ECHO OF BASE RAM | 0xE000 - 0xFE00
+        else if addr < SPRITE_ATTRIBUTE_ADDR 
+            { self.read_base_ram(addr, (addr - RAM_ECHO_ADDR) as usize) }
+        // Rest 0xFE00-0xFFFF
+        else 
+            { self.read_internal(addr, (addr - SPRITE_ATTRIBUTE_ADDR) as usize) }
+    }
+
+    fn read_base_rom(&mut self, _: Addr, offset: usize) -> Byte {
+        self.mapper.get_base_rom().unwrap()[offset]
+    }
+    fn read_switchable_rom(&mut self, _: Addr, offset: usize) -> Byte {
+        self.mapper.get_switchable_rom().unwrap()[offset]
+    }
+    fn read_vram(&mut self, _: Addr, offset: usize) -> Byte { 
+        self.vram[offset] 
+    }
+    fn read_switchable_ram(&mut self, _: Addr, offset: usize) -> Byte {
+        self.mapper.get_switchable_ram().unwrap()[offset]
+    }
+    fn read_base_ram(&mut self, _: Addr, offset: usize) -> Byte {
+        self.mapper.get_base_ram().unwrap()[offset]
+    }
+    fn read_internal(&mut self, _: Addr, offset: usize) -> Byte {
+        self.internal[offset]
     }
 }
 /*
@@ -68,11 +140,8 @@ impl <T: BankController>Memory<T> {
  */
 #[derive(Copy, Clone)]
 enum AddrType {
-    RAM,
-    ROM,
-    Config,
-    ROMSwap,
-    RAMSwap,
+    Write,
+    Status,
 }
 /*
  * BankController trait represents memory mapper interface.
@@ -83,10 +152,8 @@ trait BankController {
      * MBC configuration(setting registers, enabling RAM etc.). 
      */
     fn get_addr_type(&self, addr: Addr) -> AddrType;
-    /* Called when get_addr_type() returned Config addr type. */
-    fn on_config(&mut self, addr: Addr, value: Byte);
-    /* Called hen get_addr_type() returns ROMSwap/RAMSwap */
-    fn on_swap(&mut self, addr: Addr, value: Byte);
+    /* Called when get_addr_type() returned Status addr type. */
+    fn on_status(&mut self, addr: Addr, value: Byte);
     /* Gets base non-switchable ROM. 0x0000-0x4000 range */
     fn get_base_rom(&mut self) -> Option<MutMem>;
     /* Gets switchable ROM. 0x4000-0x8000 range */
@@ -114,11 +181,8 @@ impl RomOnly {
     }
 }
 impl BankController for RomOnly {
-    fn get_addr_type(&self, addr: Addr) -> AddrType {
-        if addr < 0x8000 { AddrType::ROM } else { AddrType::RAM }
-    }    
-    fn on_config(&mut self, _: Addr, _: Byte) {}
-    fn on_swap(&mut self, _: Addr, _: Byte) {}
+    fn get_addr_type(&self, addr: Addr) -> AddrType { AddrType::Write }    
+    fn on_status(&mut self, _: Addr, _: Byte) {}
     fn get_base_rom(&mut self) -> Option<MutMem> { Some(&mut self.rom_banks[..ROM_BANK_SIZE]) }
     fn get_switchable_rom(&mut self) -> Option<MutMem> { None }
     fn get_base_ram(&mut self) -> Option<MutMem> { None }
@@ -155,30 +219,22 @@ impl MBC1 {
 impl BankController for MBC1 {
     fn get_addr_type(&self, addr: Addr) -> AddrType {
         let intervals = [
-            (0x0000, 0x1FFF, AddrType::Config),  // RAM enable
-            (0x6000, 0x7FFF, AddrType::Config),  // ROM/RAM banking mode
-            (0x2000, 0x3FFF, AddrType::ROMSwap), // ROM bank swap
-            (0x4000, 0x5FFF, if self.banking_mode == 0 { AddrType::ROMSwap } else { AddrType::RAMSwap }),
+            (0x0000, 0x1FFF),  // RAM enable
+            (0x6000, 0x7FFF),  // ROM/RAM banking mode
+            (0x2000, 0x3FFF), // ROM bank swap
+            (0x4000, 0x5FFF), // RAM/ROM bank swap
         ];
-        for (start, end, t) in intervals.iter() {
-            if addr >= *start && addr <= *end { return *t }
+        for (start, end) in intervals.iter() {
+            if addr >= *start && addr <= *end { return AddrType::Status }
         }
-        if addr < 0x8000 { AddrType::ROM } else { AddrType::RAM }
+        AddrType::Write
     }    
-    fn on_config(&mut self, addr: Addr, value: Byte) {
+    fn on_status(&mut self, addr: Addr, value: Byte) {
         // 0x0000 - 0x2000 -> RAM ON/OFF
         // To enable: XXXX1010
         if addr < 0x2000 { 
             self.ram_enabled = if value & 0xF == 0xA { RAM_ENABLED } else { RAM_DISABLED };
         }
-        // 0x6000 - 0x8000 -> Banking Mode(RAM/ROM)
-        // For ROM(8KB RAM, 2MB ROM): XXXXXXX1, for RAM(32KB RAM, 512KB ROM): XXXXXXX0
-        if addr >= 0x6000 && addr < 0x8000 {
-            self.banking_mode = value & 1;
-            println!("BANKING: {}", self.banking_mode);
-        }
-    }
-    fn on_swap(&mut self, addr: Addr, value: Byte) {
         // 0x2000-0x4000 - ROM bank switch
         // Bank idx: XXXBBBBB
         if addr >= 0x2000 && addr < 0x4000 {
@@ -191,7 +247,13 @@ impl BankController for MBC1 {
             self.idx = ((value & 0x3) << 5) | (self.idx & 0b10011111);
             if self.idx & 0x1F == 0 { self.idx += 1; } // If 5 lower bits are zeros => change to 1
         }
+        // 0x6000 - 0x8000 -> Banking Mode(RAM/ROM)
+        // For ROM(8KB RAM, 2MB ROM): XXXXXXX1, for RAM(32KB RAM, 512KB ROM): XXXXXXX0
+        if addr >= 0x6000 && addr < 0x8000 {
+            self.banking_mode = value & 1;
+        }
     }
+
     fn get_base_rom(&mut self) -> Option<MutMem> { Some(&mut self.rom_banks[..ROM_BANK_SIZE]) }
     fn get_switchable_rom(&mut self) -> Option<MutMem> {
         let rom_idx = self.idx 
@@ -221,12 +283,32 @@ fn main() {
 
     let mut mapper = MBC1::new(cart_body);
     mapper.ram_banks[3*RAM_BANK_SIZE] = 0x69;  
-    mapper.ram_banks[2*RAM_BANK_SIZE+1] = 0x70;  
-    let mut memory = Memory::new(mapper);
+    mapper.ram_banks[2*RAM_BANK_SIZE+1] = 0x70;
 
+    mapper.rom_banks[21*ROM_BANK_SIZE] = 0x11;
+    mapper.rom_banks[66*ROM_BANK_SIZE] = 0x22;  
+    mapper.rom_banks[88*ROM_BANK_SIZE+3] = 0x33;  
+    
+    let mut memory = Memory::new(mapper);
     memory.write(0x0000, 0x0A); // Enable RAM
-    memory.write(0x6000, 0x01); // Enable 4 RAM banks mode
+    memory.write(0x6000, 1); // Enable 4 RAM banks mode
 
     memory.write(0x4000, 0x3);  // Select 3rd RAM bank
+    println!("{:x}", memory.read(RAM_SWITCHABLE_ADDR));
+
     memory.write(0x4000, 0x2);  // Select 2nd RAM bank
+    println!("{:x}", memory.read(RAM_SWITCHABLE_ADDR+1));
+
+    memory.write(0x2000, 21); // Select 21st ROM bank
+    println!("{:x}", memory.read(ROM_SWITCHABLE_ADDR));
+
+    memory.write(0x2000, 66); // Select 21th ROM bank
+    println!("{:x}", memory.read(ROM_SWITCHABLE_ADDR));
+
+    memory.write(0x6000, 0); // Enabla 1 RAM banks mode
+    memory.write(0x2000, 66); // Select 66th ROM bank
+    println!("{:x}", memory.read(ROM_SWITCHABLE_ADDR));
+
+    memory.write(0x2000, 88); // Select 88th ROM bank
+    println!("{:x}", memory.read(ROM_SWITCHABLE_ADDR + 3));
 }
