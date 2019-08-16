@@ -2,16 +2,14 @@ use super::*;
 
 const RAM_BANKS: usize = 4;
 const ROM_BANKS: usize = 128;
-const RAM_DISABLED: u8 = 0;
-const RAM_ENABLED: u8 = 1;
-const RAM_MODE: u8 = 1;
-const ROM_MODE: u8 = 0;
+pub const RAM_MODE: u8 = 1;
+pub const ROM_MODE: u8 = 0;
 
 pub struct MBC1 {
     pub ram: Vec<Byte>,
     pub rom: Vec<Byte>,
-    ram_enabled: u8,
-    banking_mode: u8,
+    pub ram_enabled: bool,
+    pub banking_mode: u8,
     idx: u8,
 }
 
@@ -20,7 +18,7 @@ impl MBC1 {
         let mut mbc = Self {
             ram: vec![0; RAM_BANK_SIZE*RAM_BANKS],
             rom: vec![0; ROM_BANK_SIZE*ROM_BANKS],
-            ram_enabled: RAM_ENABLED, banking_mode: ROM_MODE,
+            ram_enabled: true, banking_mode: ROM_MODE,
             idx: 0,
         }; 
         if rom.len() > mbc.rom.len() { panic!("ROM too big for MBC1"); }
@@ -47,7 +45,7 @@ impl BankController for MBC1 {
         // 0x0000 - 0x2000 -> RAM ON/OFF
         // To enable: XXXX1010
         if addr < 0x2000 { 
-            self.ram_enabled = if value & 0xF == 0xA { RAM_ENABLED } else { RAM_DISABLED };
+            self.ram_enabled = value & 0xF == 0xA;
         }
         // 0x2000-0x4000 - ROM bank switch
         // Bank idx: XXXBBBBB
@@ -80,12 +78,12 @@ impl BankController for MBC1 {
     }
 
     fn get_base_ram(&mut self) -> Option<MutMem> { 
-        if self.ram_enabled == RAM_DISABLED { return None }
+        if !self.ram_enabled { return None }
         Some(&mut self.ram[..RAM_BANK_SIZE]) 
     }
 
     fn get_switchable_ram(&mut self) -> Option<MutMem> {
-        if self.ram_enabled == RAM_DISABLED { return None }
+        if !self.ram_enabled { return None }
 
         let ram_idx = (self.idx 
             & if self.banking_mode == RAM_MODE { 0b01100000 } else { 0 }) >> 5;

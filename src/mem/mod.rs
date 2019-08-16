@@ -23,7 +23,7 @@ pub const INTERNAL_SIZE: usize = 0x200;
  * It routes writes/reads to proper places i.e.: RAM in cart or internal VRAM. 
  */
 pub struct Memory<T: BankController> {
-    mapper: T,
+    pub mapper: T,
     vram: Vec<Byte>,
     internal: Vec<Byte>,
 }

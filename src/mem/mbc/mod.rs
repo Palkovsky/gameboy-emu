@@ -1,6 +1,6 @@
-mod romonly;
-mod mbc1;
-mod mbc2;
+pub mod romonly;
+pub mod mbc1;
+pub mod mbc2;
 
 pub use mbc1::{MBC1};
 pub use mbc2::{MBC2};
