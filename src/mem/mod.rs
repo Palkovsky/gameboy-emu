@@ -18,6 +18,10 @@ pub const ROM_BANK_SIZE: usize = 0x4000;
 pub const VRAM_SIZE: usize = 0x2000;
 pub const INTERNAL_SIZE: usize = 0x200;
 
+/*
+ * Memory struct is responsible for handling address space of CPU.
+ * It routes writes/reads to proper places i.e.: RAM in cart or internal VRAM. 
+ */
 pub struct Memory<T: BankController> {
     mapper: T,
     vram: Vec<Byte>,

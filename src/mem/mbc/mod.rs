@@ -1,7 +1,9 @@
 mod romonly;
 mod mbc1;
+mod mbc2;
 
 pub use mbc1::{MBC1};
+pub use mbc2::{MBC2};
 pub use romonly::{RomOnly};
 
 use super::{ROM_BANK_SIZE, RAM_BANK_SIZE, Addr, Byte, MutMem};

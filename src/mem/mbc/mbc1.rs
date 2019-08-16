@@ -1,15 +1,15 @@
 use super::*;
 
-const MAX_RAM_BANKS: usize = 4;
-const MAX_ROM_BANKS: usize = 128;
+const RAM_BANKS: usize = 4;
+const ROM_BANKS: usize = 128;
 const RAM_DISABLED: u8 = 0;
 const RAM_ENABLED: u8 = 1;
 const RAM_MODE: u8 = 1;
 const ROM_MODE: u8 = 0;
 
 pub struct MBC1 {
-    pub ram_banks: Vec<Byte>,
-    pub rom_banks: Vec<Byte>,
+    pub ram: Vec<Byte>,
+    pub rom: Vec<Byte>,
     ram_enabled: u8,
     banking_mode: u8,
     idx: u8,
@@ -18,19 +18,18 @@ pub struct MBC1 {
 impl MBC1 {
     pub fn new(rom: Vec<Byte>) -> Self { 
         let mut mbc = Self {
-            ram_banks: vec![0; RAM_BANK_SIZE*MAX_RAM_BANKS],
-            rom_banks: vec![0; ROM_BANK_SIZE*MAX_ROM_BANKS],
+            ram: vec![0; RAM_BANK_SIZE*RAM_BANKS],
+            rom: vec![0; ROM_BANK_SIZE*ROM_BANKS],
             ram_enabled: RAM_ENABLED, banking_mode: ROM_MODE,
             idx: 0,
         }; 
-        if rom.len() > mbc.rom_banks.len() { panic!("ROM too big for MBC1"); }
-        for (i, byte) in rom.into_iter().enumerate() { mbc.rom_banks[i] = byte; }
+        if rom.len() > mbc.rom.len() { panic!("ROM too big for MBC1"); }
+        for (i, byte) in rom.into_iter().enumerate() { mbc.rom[i] = byte; }
         mbc
     }
 }
 
 impl BankController for MBC1 {
-
     fn get_addr_type(&self, addr: Addr) -> AddrType {
         let intervals = [
             (0x0000, 0x1FFF),  // RAM enable
@@ -69,7 +68,7 @@ impl BankController for MBC1 {
         }
     }
 
-    fn get_base_rom(&mut self) -> Option<MutMem> { Some(&mut self.rom_banks[..ROM_BANK_SIZE]) }
+    fn get_base_rom(&mut self) -> Option<MutMem> { Some(&mut self.rom[..ROM_BANK_SIZE]) }
 
     fn get_switchable_rom(&mut self) -> Option<MutMem> {
         let rom_idx = self.idx 
@@ -77,16 +76,22 @@ impl BankController for MBC1 {
         
         let start = (rom_idx as usize) * ROM_BANK_SIZE;
         let end = start + ROM_BANK_SIZE;
-        Some(&mut self.rom_banks[start..end])
+        Some(&mut self.rom[start..end])
     }
 
-    fn get_base_ram(&mut self) -> Option<MutMem> { Some(&mut self.ram_banks[..RAM_BANK_SIZE]) }
+    fn get_base_ram(&mut self) -> Option<MutMem> { 
+        if self.ram_enabled == RAM_DISABLED { return None }
+        Some(&mut self.ram[..RAM_BANK_SIZE]) 
+    }
 
     fn get_switchable_ram(&mut self) -> Option<MutMem> {
+        if self.ram_enabled == RAM_DISABLED { return None }
+
         let ram_idx = (self.idx 
             & if self.banking_mode == RAM_MODE { 0b01100000 } else { 0 }) >> 5;
         let start = (ram_idx as usize) * RAM_BANK_SIZE;
         let end = start + RAM_BANK_SIZE;
-        Some(&mut self.ram_banks[start..end])
+        
+        Some(&mut self.ram[start..end])
     }
 }
