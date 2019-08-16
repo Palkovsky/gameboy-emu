@@ -66,10 +66,6 @@ impl BankController for MBC2 {
         Some(&mut self.rom[start..end])
     }
 
-    fn get_base_ram(&mut self) -> Option<MutMem> { 
-        None
-    }
-
     fn get_switchable_ram(&mut self) -> Option<MutMem> {
         if !self.ram_enabled { return None }
 

@@ -14,6 +14,130 @@ mod mbc {
             .map(|(i, _)| (i % 256) as u8).collect() 
     }
 
+    mod mbc3 {
+        use super::*;
+        use chrono::{Utc, Timelike, Datelike};
+
+         #[test]
+        fn access_0h_20h_40h_60h_bank() {
+            let mut mapper = mbc::MBC3::new(mocked_rom(SZ_2MB));
+            mapper.rom[ROM_BANK_SIZE * 0x00] = 0x37;
+            mapper.rom[ROM_BANK_SIZE * 0x01] = 0x01;
+            mapper.rom[ROM_BANK_SIZE * 0x20] = 0x20;
+            mapper.rom[ROM_BANK_SIZE * 0x21] = 0x21;
+            mapper.rom[ROM_BANK_SIZE * 0x40] = 0x40;
+            mapper.rom[ROM_BANK_SIZE * 0x41] = 0x41;
+            mapper.rom[ROM_BANK_SIZE * 0x60] = 0x60;
+            mapper.rom[ROM_BANK_SIZE * 0x61] = 0x61;
+            let mut memory = mem::Memory::new(mapper);
+
+            // Try selecting 0h memory bank
+            memory.write(0x2000, 0);
+            assert_eq!(memory.read(ROM_SWITCHABLE_ADDR), 0x1);
+            assert_eq!(memory.read(ROM_BASE_ADDR), 0x37);
+
+            // Try selecting 20h memory bank
+            memory.write(0x2000, 0x20);
+            assert_eq!(memory.read(ROM_SWITCHABLE_ADDR), 0x20);
+
+            // Try selecting 40h memory bank
+            memory.write(0x2000, 0x40);
+            assert_eq!(memory.read(ROM_SWITCHABLE_ADDR), 0x40);
+
+            // Try selecting 60h memory bank
+            memory.write(0x2000, 0x60);
+            assert_eq!(memory.read(ROM_SWITCHABLE_ADDR), 0x60);
+        }
+
+        #[test]
+        fn ram_read() {
+            let mut mapper = mbc::MBC3::new(mocked_rom(SZ_2MB));
+            mapper.ram[RAM_BANK_SIZE * 0x00 + 11] = 0x01;
+            mapper.ram[RAM_BANK_SIZE * 0x04 + 44] = 0x04;
+            mapper.ram[RAM_BANK_SIZE * 0x07 + 77] = 0x07;
+            let mut memory = mem::Memory::new(mapper);
+
+            // RAM bank #0 should be selected by default
+            assert_eq!(memory.read(RAM_SWITCHABLE_ADDR + 11), 0x01);
+
+            // Switch to bank #7
+            memory.write(0x4000, 0x07);
+            assert_eq!(memory.read(RAM_SWITCHABLE_ADDR + 77), 0x07);
+
+            // Switch to bank #4
+            memory.write(0x4000, 0x04);
+            assert_eq!(memory.read(RAM_SWITCHABLE_ADDR + 44), 0x04);
+        }
+
+        #[test]
+        fn rtc_read() {
+            let mut memory = mem::Memory::new(mbc::MBC3::new(mocked_rom(SZ_2MB)));
+
+            // Shouldn't be halted
+            assert!(memory.mapper.rtc_reg[4] & 0x80 == 0);
+            // Latch current RTC state
+            memory.write(0x6000, 0x00);
+            // Shouldn't be halted
+            assert!(memory.mapper.rtc_reg[4] & 0x80 == 0);
+            // Finsh latch sequence
+            memory.write(0x6000, 0x01);
+            // Should be halted
+            assert!(memory.mapper.rtc_reg[4] & 0x80 != 0);
+
+            let time = Utc::now();
+            
+            // Map RTC seconds to 0xA000
+            memory.write(0x4000, 0x8);
+            assert_eq!(time.second() as u8, memory.read(RAM_SWITCHABLE_ADDR));
+            // Map RTC mins to 0xA000
+            memory.write(0x4000, 0x9);
+            assert_eq!(time.minute() as u8, memory.read(RAM_SWITCHABLE_ADDR));
+            // Map RTC hours to 0xA000
+            memory.write(0x4000, 0xA);
+            assert_eq!(time.hour() as u8, memory.read(RAM_SWITCHABLE_ADDR));
+            // Map RTC day lower 8 bits to 0xA000
+            let day = time.day() % (1 << 9);
+            memory.write(0x4000, 0xB);
+            assert_eq!((day & 0xFF) as u8, memory.read(RAM_SWITCHABLE_ADDR));
+            // Map last RTC byte 0xA000
+            memory.write(0x4000, 0xC);
+            let byte = memory.read(RAM_SWITCHABLE_ADDR);
+            assert!(byte & 0x80 != 0);
+            assert_eq!(((day & 0x0100) >> 8) as u8, byte & 1);
+        }
+
+        #[test]
+        #[should_panic]
+        fn rtc_read_not_latched() {
+            let mut memory = mem::Memory::new(mbc::MBC3::new(mocked_rom(SZ_2MB)));
+            memory.write(0x4000, 0x8);
+            memory.read(RAM_SWITCHABLE_ADDR);
+        }
+
+        #[test]
+        fn rtc_latching() {
+            let mut memory = mem::Memory::new(mbc::MBC3::new(mocked_rom(SZ_2MB)));
+            // Shouldn't be halted
+            assert!(memory.mapper.rtc_reg[4] & 0x80 == 0);
+            // Latch current RTC state
+            memory.write(0x6000, 0x00);
+            // Still halted
+            assert!(memory.mapper.rtc_reg[4] & 0x80 == 0);
+            // Finish latch sequence
+            memory.write(0x6000, 0x01);
+            // Should be halted
+            assert!(memory.mapper.rtc_reg[4] & 0x80 != 0);
+            // Unlatch current RTC state
+            memory.write(0x6000, 0x00);
+            // Should be still halted
+            assert!(memory.mapper.rtc_reg[4] & 0x80 != 0);
+            // Finish unlatching
+            memory.write(0x6000, 0x01);
+            // Should be unhalted now
+            assert!(memory.mapper.rtc_reg[4] & 0x80 == 0);
+        }
+    }
+
     mod mbc2 {
         use super::*;
 
@@ -125,6 +249,44 @@ mod mbc {
         }
 
         #[test]
+        fn access_0h_20h_40h_60h_bank() {
+            let mut mapper = mbc::MBC1::new(mocked_rom(SZ_2MB));
+            mapper.rom[ROM_BANK_SIZE * 0x00] = 0x37;
+            mapper.rom[ROM_BANK_SIZE * 0x01] = 0x01;
+            mapper.rom[ROM_BANK_SIZE * 0x20] = 0x20;
+            mapper.rom[ROM_BANK_SIZE * 0x21] = 0x21;
+            mapper.rom[ROM_BANK_SIZE * 0x40] = 0x40;
+            mapper.rom[ROM_BANK_SIZE * 0x41] = 0x41;
+            mapper.rom[ROM_BANK_SIZE * 0x60] = 0x60;
+            mapper.rom[ROM_BANK_SIZE * 0x61] = 0x61;
+            let mut memory = mem::Memory::new(mapper);
+
+            // Check if in ROM mode
+            assert_eq!(memory.mapper.banking_mode, mbc::mbc1::ROM_MODE);
+
+            // Try selecting 0h memory bank
+            memory.write(0x4000, 0);
+            memory.write(0x2000, 0);
+            assert_eq!(memory.read(ROM_SWITCHABLE_ADDR), 0x1);
+            assert_eq!(memory.read(ROM_BASE_ADDR), 0x37);
+
+            // Try selecting 20h memory bank
+            memory.write(0x2000, 0x0000);
+            memory.write(0x4000, 0b00000001);
+            assert_eq!(memory.read(ROM_SWITCHABLE_ADDR), 0x21);
+
+            // Try selecting 40h memory bank
+            memory.write(0x2000, 0x0000);
+            memory.write(0x4000, 0b00000010);
+            assert_eq!(memory.read(ROM_SWITCHABLE_ADDR), 0x41);
+
+            // Try selecting 60h memory bank
+            memory.write(0x2000, 0x0000);
+            memory.write(0x4000, 0b00000011);
+            assert_eq!(memory.read(ROM_SWITCHABLE_ADDR), 0x61);
+        }
+
+        #[test]
         fn multiple_reads() {
             let mut mapper = mbc::MBC1::new(mocked_rom(SZ_2MB));
             mapper.ram[3*RAM_BANK_SIZE] = 0x69;  
@@ -165,16 +327,17 @@ mod mbc {
         fn read() {
             let rom = mocked_rom(SZ_32KB);
             let mut mapper = mbc::RomOnly::new(rom.clone());
-            mapper.ram[0x0069] = 0x69;
             let mut memory = Memory::new(mapper);
-            
+
             // Read from ROM
             assert_eq!(memory.read(ROM_BASE_ADDR + 0x0), rom[0x0]);
             assert_eq!(memory.read(ROM_BASE_ADDR + 0x2137),rom[0x2137]);
             assert_eq!(memory.read(ROM_BASE_ADDR + 0x7FFF), rom[0x7FFF]);
+
             // Read from RAM
-            assert_eq!(memory.read(RAM_BASE_ADDR + 0x0069), 0x69);
-            assert_eq!(memory.read(RAM_BASE_ADDR + 0x006A), 0x00);
+            memory.write(RAM_BASE_ADDR, 0x69);
+            assert_eq!(memory.read(RAM_BASE_ADDR), 0x69);
+            assert_eq!(memory.read(RAM_BASE_ADDR + 1), 0x00);
         }
 
         #[test]

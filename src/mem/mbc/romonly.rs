@@ -7,15 +7,11 @@ const ROM_ONLY_SIZE: usize = 1 << 15;
 
 pub struct RomOnly {
     pub rom: Vec<Byte>,
-    pub ram: Vec<Byte>
 }
 
 impl RomOnly {
     pub fn new(rom: Vec<Byte>) -> Self { 
-        let mut mbc = Self { 
-            rom: vec![0; ROM_ONLY_SIZE], 
-            ram: vec![0; RAM_BANK_SIZE],
-        };
+        let mut mbc = Self {  rom: vec![0; ROM_ONLY_SIZE] };
         if rom.len() > mbc.rom.len() { panic!("ROM too big for RomOnly"); }
         for (i, byte) in rom.into_iter().enumerate() { mbc.rom[i] = byte; }
         mbc
@@ -31,17 +27,11 @@ impl BankController for RomOnly {
 
     fn get_base_rom(&mut self) -> Option<MutMem> { 
         Some(&mut self.rom[..ROM_BANK_SIZE])
-    
     }
+    
     fn get_switchable_rom(&mut self) -> Option<MutMem> { 
         Some(&mut self.rom[ROM_BANK_SIZE..ROM_BANK_SIZE*2])
     }
 
-    fn get_base_ram(&mut self) -> Option<MutMem> {
-         Some(&mut self.ram[..])
-    }
-
-    fn get_switchable_ram(&mut self) -> Option<MutMem> {
-        None
-     }
+    fn get_switchable_ram(&mut self) -> Option<MutMem> { None }
 }

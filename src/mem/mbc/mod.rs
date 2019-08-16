@@ -1,9 +1,11 @@
 pub mod romonly;
 pub mod mbc1;
 pub mod mbc2;
+pub mod mbc3;
 
 pub use mbc1::{MBC1};
 pub use mbc2::{MBC2};
+pub use mbc3::{MBC3};
 pub use romonly::{RomOnly};
 
 use super::{ROM_BANK_SIZE, RAM_BANK_SIZE, Addr, Byte, MutMem};
@@ -35,6 +37,4 @@ pub trait BankController {
     fn get_switchable_rom(&mut self) -> Option<MutMem>;
     /* Gets switchable RAM. 0xA000-0xC000 range */
     fn get_switchable_ram(&mut self) -> Option<MutMem>;
-    /*  Gets base non-switchable RAM. 0xC000-0xE000 */
-    fn get_base_ram(&mut self) -> Option<MutMem>;
 }

@@ -19,7 +19,7 @@ impl MBC1 {
             ram: vec![0; RAM_BANK_SIZE*RAM_BANKS],
             rom: vec![0; ROM_BANK_SIZE*ROM_BANKS],
             ram_enabled: true, banking_mode: ROM_MODE,
-            idx: 0,
+            idx: 1,
         }; 
         if rom.len() > mbc.rom.len() { panic!("ROM too big for MBC1"); }
         for (i, byte) in rom.into_iter().enumerate() { mbc.rom[i] = byte; }
@@ -71,17 +71,11 @@ impl BankController for MBC1 {
     fn get_switchable_rom(&mut self) -> Option<MutMem> {
         let rom_idx = self.idx 
             & if self.banking_mode == ROM_MODE { 0x7F } else { 0x1F };
-        
         let start = (rom_idx as usize) * ROM_BANK_SIZE;
         let end = start + ROM_BANK_SIZE;
         Some(&mut self.rom[start..end])
     }
-
-    fn get_base_ram(&mut self) -> Option<MutMem> { 
-        if !self.ram_enabled { return None }
-        Some(&mut self.ram[..RAM_BANK_SIZE]) 
-    }
-
+    
     fn get_switchable_ram(&mut self) -> Option<MutMem> {
         if !self.ram_enabled { return None }
 

@@ -25,12 +25,13 @@ pub const INTERNAL_SIZE: usize = 0x200;
 pub struct Memory<T: BankController> {
     pub mapper: T,
     vram: Vec<Byte>,
-    internal: Vec<Byte>,
+    ram: Vec<Byte>,
+    misc: Vec<Byte>,
 }
 
 impl <T: BankController>Memory<T> {
     pub fn new(mapper: T) -> Self { 
-        Self { mapper: mapper, vram: vec![0; VRAM_SIZE], internal: vec![0; INTERNAL_SIZE]} 
+        Self { mapper: mapper, vram: vec![0; VRAM_SIZE], ram: vec![0; RAM_BANK_SIZE], misc: vec![0; INTERNAL_SIZE]} 
     }
 
     /*
@@ -57,7 +58,7 @@ impl <T: BankController>Memory<T> {
             { self.write_base_ram(addr, (addr - RAM_ECHO_ADDR) as usize, byte) }
         // Rest 0xFE00-0xFFFF
         else 
-            { self.write_internal(addr, (addr - SPRITE_ATTRIBUTE_ADDR) as usize, byte) }
+            { self.write_misc(addr, (addr - SPRITE_ATTRIBUTE_ADDR) as usize, byte) }
     }
 
     fn write_base_rom(&mut self, addr: Addr, _: usize, value: Byte) {
@@ -86,14 +87,11 @@ impl <T: BankController>Memory<T> {
     }
 
     fn write_base_ram(&mut self, addr: Addr, offset: usize, value: Byte) {
-        match self.mapper.get_addr_type(addr) {
-            AddrType::Status => panic!("Unable to send status at RAM address 0x{:X}", addr),
-            AddrType::Write => self.mapper.get_base_ram().unwrap()[offset] = value,
-        }    
+        self.ram[offset] = value;
     }
 
-    fn write_internal(&mut self, _: Addr, offset: usize, value: Byte) {
-        self.internal[offset] = value;
+    fn write_misc(&mut self, _: Addr, offset: usize, value: Byte) {
+        self.misc[offset] = value;
     }
 
     /*
@@ -120,7 +118,7 @@ impl <T: BankController>Memory<T> {
             { self.read_base_ram(addr, (addr - RAM_ECHO_ADDR) as usize) }
         // Rest 0xFE00-0xFFFF
         else 
-            { self.read_internal(addr, (addr - SPRITE_ATTRIBUTE_ADDR) as usize) }
+            { self.read_misc(addr, (addr - SPRITE_ATTRIBUTE_ADDR) as usize) }
     }
 
     fn read_base_rom(&mut self, _: Addr, offset: usize) -> Byte {
@@ -140,10 +138,10 @@ impl <T: BankController>Memory<T> {
     }
 
     fn read_base_ram(&mut self, _: Addr, offset: usize) -> Byte {
-        self.mapper.get_base_ram().unwrap()[offset]
+        self.ram[offset]
     }
 
-    fn read_internal(&mut self, _: Addr, offset: usize) -> Byte {
-        self.internal[offset]
+    fn read_misc(&mut self, _: Addr, offset: usize) -> Byte {
+        self.misc[offset]
     }
 }
