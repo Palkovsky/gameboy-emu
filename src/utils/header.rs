@@ -28,6 +28,13 @@ pub enum CartType {
     Unknown(u8),
 }
 
+#[derive(Debug)]
+pub enum CGBRequirement {
+    Unsupported,
+    Optional,
+    Required
+}
+
 impl CartHeader {
     pub fn new(rom: Vec<u8>) -> Self {
         let bytes = std::mem::size_of::<CartHeader>();
@@ -58,6 +65,15 @@ impl CartHeader {
 
     pub fn sgb_support(&self) -> bool {
         self.sgb == 0x003
+    }
+
+    pub fn cgb_support(&self) -> CGBRequirement {
+        match (self.license_old, self.title[15]) {
+            (0x33, _) => CGBRequirement::Unsupported,
+            (_, 0x80) => CGBRequirement::Optional,
+            (_, 0xC0) => CGBRequirement::Required,
+            (_, _) => CGBRequirement::Unsupported,
+        }
     }
 
     pub fn cart_type(&self) -> CartType {
@@ -107,7 +123,7 @@ impl CartHeader {
 impl Display for CartHeader {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(f, 
-              "(Title: {}, MBC: {:?}, ROM banks: {}, RAM banks: {}, SGB: {}, Japanese: {})",
-              self.title(), self.cart_type(), self.rom_banks(), self.ram_banks(), self.sgb_support(), self.is_japan())
+              "(Title: {}, MBC: {:?}, ROM banks: {}, RAM banks: {}, SGB support: {}, CGB: {:?}, Japanese: {})",
+              self.title(), self.cart_type(), self.rom_banks(), self.ram_banks(), self.sgb_support(), self.cgb_support(), self.is_japan())
     }
 }

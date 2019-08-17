@@ -1,7 +1,9 @@
 pub mod mbc;
+pub mod gpu;
 pub mod ioregs;
 
 use mbc::*;
+use gpu::*;
 pub use ioregs::*;
 
 pub type Addr = u16;
@@ -17,48 +19,60 @@ pub const VRAM_ADDR: Addr = 0x8000;
 pub const RAM_SWITCHABLE_ADDR: Addr = 0xA000;
 pub const RAM_BASE_ADDR: Addr = 0xC000;
 pub const RAM_ECHO_ADDR: Addr = 0xE000;
-pub const SPRITE_ATTRIBUTE_ADDR: Addr = 0xFE00;
+pub const OAM_ADDR: Addr = 0xFE00;
 pub const STACK_ADDR: Addr = 0xFF80;
 pub const IO_REGS_ADDR: Addr = 0xFF00;
 
+pub const BOOSTRAP_SIZE: usize = 0x100;
 pub const RAM_BANK_SIZE: usize = 0x2000;
 pub const ROM_BANK_SIZE: usize = 0x4000;
 pub const VRAM_SIZE: usize = 0x2000;
-pub const INTERNAL_SIZE: usize = 0x200;
 pub const OAM_SIZE: usize = 0xA0;
 pub const IO_REG_SIZE: usize = 0x80;
 pub const STACK_SIZE: usize = 0x80;
 
 /*
- * Memory struct is responsible for handling address space of CPU.
+ * Memory(MMU) struct is responsible for handling address space of CPU.
  * It routes writes/reads to proper places i.e.: RAM in cart or internal VRAM. 
  */
 pub struct Memory<T: BankController> {
+    // Memory segments of corresponding devices
+    pub bootstrap: Vec<Byte>,
     pub mapper: T,
-    pub vram: Vec<Byte>,
+    pub gpu: GPU,
     pub ram: Vec<Byte>,
-    pub oam: Vec<Byte>,
     pub stack: Vec<Byte>, 
     pub ioregs: IORegs,
+    boot_flg: bool, // true if CPU executing bootsrap code
 }
 
 impl <T: BankController>Memory<T> {
     pub fn new(mapper: T) -> Self { 
-        Self { mapper: mapper,
-               vram: vec![0; VRAM_SIZE],
-               ram: vec![0; RAM_BANK_SIZE],
-               oam: vec![0; OAM_SIZE],
-               stack: vec![0; STACK_SIZE],
-               ioregs: IORegs::new(),
+        Self { 
+            bootstrap: include_bytes!("bootstrap.bin").to_vec(),
+            mapper: mapper,
+            gpu: GPU::new(),
+            ram: vec![0; RAM_BANK_SIZE],
+            stack: vec![0; STACK_SIZE],
+            ioregs: IORegs::new(),
+            boot_flg: false,
         }   
     }
+
+    /* boot_flg flag controls. If flag set, the 256 bytes of bootstrap code mapped to 0x0000-0x00FF */
+    pub fn map_bootsrap(&mut self) { self.boot_flg = true; }
+    pub fn unmap_bootsrap(&mut self) { self.boot_flg = false; }
 
     /*
      * WRITEs
      */
     pub fn write(&mut self, addr: Addr, byte: Byte) {
+        // BOOTSTRAP ROM | BOOT Sequence
+        if addr < BOOSTRAP_SIZE as u16 && self.boot_flg
+            { panic!("Write to 0x{:x} bootstrap ROM.", addr) }
+
         // BASE ROM | 0x0000-0x3FFF
-        if addr < ROM_SWITCHABLE_ADDR 
+        else if addr < ROM_SWITCHABLE_ADDR 
             { self.write_base_rom(addr, addr as usize, byte) } 
 
         // SWITCHABLE ROM | 0x4000-0x7FFF
@@ -78,12 +92,12 @@ impl <T: BankController>Memory<T> {
             { self.write_base_ram(addr, (addr - RAM_BASE_ADDR) as usize, byte) }
 
         // ECHO OF BASE RAM | 0xE000 - 0xFE00
-        else if addr < SPRITE_ATTRIBUTE_ADDR 
+        else if addr < OAM_ADDR 
             { self.write_base_ram(addr, (addr - RAM_ECHO_ADDR) as usize, byte) }
 
         // SPRITE ATTRIBUTE TABLE | 0xFE00-0xFEA0 + 0xFEA0-0xFF00(unsued anyway)
         else if addr < IO_REGS_ADDR
-            { self.write_oam(addr, (addr - SPRITE_ATTRIBUTE_ADDR) as usize, byte) }
+            { self.write_oam(addr, (addr - OAM_ADDR) as usize, byte) }
         
         // IO Registers | (0xFF00-0xFF7F + 0xFFFF)
         else if addr < STACK_ADDR || addr == 0xFFFF 
@@ -109,7 +123,7 @@ impl <T: BankController>Memory<T> {
     }
 
     fn write_vram(&mut self, _: Addr, offset: usize, value: Byte) { 
-        self.vram[offset] = value;
+        self.gpu.vram()[offset] = value;
     }
 
     fn write_switchable_ram(&mut self, addr: Addr, offset: usize, value: Byte) {
@@ -124,7 +138,7 @@ impl <T: BankController>Memory<T> {
     }
 
     fn write_oam(&mut self, _: Addr, offset: usize, value: Byte) {
-        self.oam[offset] = value;
+        self.gpu.oam()[offset] = value;
     }
 
     fn write_io_reg(&mut self, _: Addr, offset: usize, value: Byte) {
@@ -139,8 +153,12 @@ impl <T: BankController>Memory<T> {
      * READs
      */
     pub fn read(&mut self, addr: Addr) -> Byte {
+        // BOOTSTRAP ROM | BOOT Sequence
+        if addr < BOOSTRAP_SIZE as u16 && self.boot_flg
+            { self.bootstrap[addr as usize] }
+        
         // BASE ROM | 0x0000-0x3FFF
-        if addr < ROM_SWITCHABLE_ADDR 
+        else if addr < ROM_SWITCHABLE_ADDR 
             { self.read_base_rom(addr, addr as usize) } 
 
         // SWITCHABLE ROM | 0x4000-0x7FFF
@@ -160,12 +178,12 @@ impl <T: BankController>Memory<T> {
             { self.read_base_ram(addr, (addr - RAM_BASE_ADDR) as usize) }
 
         // ECHO OF BASE RAM | 0xE000 - 0xFE00
-        else if addr < SPRITE_ATTRIBUTE_ADDR 
+        else if addr < OAM_ADDR 
             { self.read_base_ram(addr, (addr - RAM_ECHO_ADDR) as usize) }
 
         // SPRITE ATTRIBUTE TABLE | 0xFE00-0xFEA0 + 0xFEA0-0xFF00(unsued anyway)
         else if addr < IO_REGS_ADDR
-            { self.read_oam(addr, (addr - SPRITE_ATTRIBUTE_ADDR) as usize) }
+            { self.read_oam(addr, (addr - OAM_ADDR) as usize) }
         
         // IO Registers | (0xFF00-0xFF7F + 0xFFFF) + 0xFF80 + 0xFFFE(High RAM - unused)
         else if addr < STACK_ADDR || addr == 0xFFFF
@@ -185,7 +203,7 @@ impl <T: BankController>Memory<T> {
     }
 
     fn read_vram(&mut self, _: Addr, offset: usize) -> Byte { 
-        self.vram[offset] 
+        self.gpu.vram()[offset] 
     }
 
     fn read_switchable_ram(&mut self, _: Addr, offset: usize) -> Byte {
@@ -197,7 +215,7 @@ impl <T: BankController>Memory<T> {
     }
 
     fn read_oam(&mut self, _: Addr, offset: usize) -> Byte {
-        self.oam[offset]
+        self.gpu.oam()[offset]
     }
 
     fn read_io_reg(&mut self, _: Addr, offset: usize) -> Byte {

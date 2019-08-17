@@ -10,19 +10,14 @@ fn main() -> io::Result<()> {
     if env::args().len() != 2 {
         panic!("Usage: {} [rom]", env::args().nth(0).unwrap());
     }
-
     let path = env::args().nth(1).unwrap();
     let mut file = fs::File::open(path).unwrap();
-
     let mut rom = Vec::new();
     file.read_to_end(&mut rom)?;
 
-    let header: Vec<u8> = rom.iter()
+    let header = CartHeader::new(rom.iter()
         .take(0x150).skip(0x100)
-        .map(|x| *x).collect();
-    let header = CartHeader::new(header);
-    
+        .map(|x| *x).collect());
     println!("{}", header);
-
     Ok(())
 }
