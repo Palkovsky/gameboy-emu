@@ -2,25 +2,25 @@ extern crate gameboy;
 
 #[cfg(test)]
 mod mbc {
-    
     use gameboy::*;
 
     const SZ_32KB: usize = 1 << 15;
     const SZ_256KB: usize = 1 << 18;
     const SZ_2MB: usize = 1 << 21;
 
-    fn mocked_rom(size: usize) -> Vec<u8> { 
+    fn mock_rom(size: usize) -> Vec<u8> { 
         vec![0; size].into_iter().enumerate()
             .map(|(i, _)| (i % 256) as u8).collect() 
     }
 
+    #[cfg(test)]
     mod mbc3 {
         use super::*;
         use chrono::{Utc, Timelike, Datelike};
 
          #[test]
         fn access_0h_20h_40h_60h_bank() {
-            let mut mapper = mbc::MBC3::new(mocked_rom(SZ_2MB));
+            let mut mapper = mbc::MBC3::new(mock_rom(SZ_2MB));
             mapper.rom[ROM_BANK_SIZE * 0x00] = 0x37;
             mapper.rom[ROM_BANK_SIZE * 0x01] = 0x01;
             mapper.rom[ROM_BANK_SIZE * 0x20] = 0x20;
@@ -51,7 +51,7 @@ mod mbc {
 
         #[test]
         fn ram_read() {
-            let mut mapper = mbc::MBC3::new(mocked_rom(SZ_2MB));
+            let mut mapper = mbc::MBC3::new(mock_rom(SZ_2MB));
             mapper.ram[RAM_BANK_SIZE * 0x00 + 11] = 0x01;
             mapper.ram[RAM_BANK_SIZE * 0x04 + 44] = 0x04;
             mapper.ram[RAM_BANK_SIZE * 0x07 + 77] = 0x07;
@@ -71,7 +71,7 @@ mod mbc {
 
         #[test]
         fn rtc_read() {
-            let mut memory = mem::Memory::new(mbc::MBC3::new(mocked_rom(SZ_2MB)));
+            let mut memory = mem::Memory::new(mbc::MBC3::new(mock_rom(SZ_2MB)));
 
             // Shouldn't be halted
             assert!(memory.mapper.rtc_reg[4] & 0x80 == 0);
@@ -109,14 +109,14 @@ mod mbc {
         #[test]
         #[should_panic]
         fn rtc_read_not_latched() {
-            let mut memory = mem::Memory::new(mbc::MBC3::new(mocked_rom(SZ_2MB)));
+            let mut memory = mem::Memory::new(mbc::MBC3::new(mock_rom(SZ_2MB)));
             memory.write(0x4000, 0x8);
             memory.read(RAM_SWITCHABLE_ADDR);
         }
 
         #[test]
         fn rtc_latching() {
-            let mut memory = mem::Memory::new(mbc::MBC3::new(mocked_rom(SZ_2MB)));
+            let mut memory = mem::Memory::new(mbc::MBC3::new(mock_rom(SZ_2MB)));
             // Shouldn't be halted
             assert!(memory.mapper.rtc_reg[4] & 0x80 == 0);
             // Latch current RTC state
@@ -138,13 +138,14 @@ mod mbc {
         }
     }
 
+    #[cfg(test)]
     mod mbc2 {
         use super::*;
 
         #[test]
         #[should_panic]
         fn access_over_512_ram() {
-            let mapper = mbc::MBC2::new(mocked_rom(SZ_256KB));
+            let mapper = mbc::MBC2::new(mock_rom(SZ_256KB));
             let mut memory = mem::Memory::new(mapper);
             memory.read(RAM_SWITCHABLE_ADDR + 512);
         }
@@ -152,13 +153,13 @@ mod mbc {
         #[test]
         #[should_panic]
         fn load_too_big_rom() {
-            mbc::MBC2::new(mocked_rom(SZ_2MB));
+            mbc::MBC2::new(mock_rom(SZ_2MB));
         }
 
         #[test]
         #[should_panic]
         fn ram_access_when_disabled() {
-            let mapper = mbc::MBC2::new(mocked_rom(SZ_256KB));
+            let mapper = mbc::MBC2::new(mock_rom(SZ_256KB));
             let mut memory = mem::Memory::new(mapper);
 
             memory.write(0x0000, 0x00); // Disable RAM
@@ -169,7 +170,7 @@ mod mbc {
 
         #[test]
         fn multiple_reads() {
-            let mut mapper = mem::mbc::MBC2::new(mocked_rom(SZ_256KB));
+            let mut mapper = mem::mbc::MBC2::new(mock_rom(SZ_256KB));
             mapper.ram[128] = 0xFF;  
             mapper.ram[1] = 0x2E;
             mapper.rom[0x5*ROM_BANK_SIZE] = 0x11;
@@ -188,12 +189,13 @@ mod mbc {
         }
     }
 
+    #[cfg(test)]
     mod mbc1 {
         use super::*;
 
         #[test]
         fn ram_enable_switch() {
-            let mapper = mbc::MBC1::new(mocked_rom(SZ_2MB));
+            let mapper = mbc::MBC1::new(mock_rom(SZ_2MB));
             let mut memory = mem::Memory::new(mapper);
 
             // Check default
@@ -214,7 +216,7 @@ mod mbc {
 
         #[test]
         fn ram_rom_mode_switch() {
-            let mapper = mbc::MBC1::new(mocked_rom(SZ_2MB));
+            let mapper = mbc::MBC1::new(mock_rom(SZ_2MB));
             let mut memory = mem::Memory::new(mapper);
 
             // Check default
@@ -227,7 +229,7 @@ mod mbc {
 
         #[test]
         fn ram_access_in_rom_mode() {
-            let mut mapper = mbc::MBC1::new(mocked_rom(SZ_2MB));
+            let mut mapper = mbc::MBC1::new(mock_rom(SZ_2MB));
             mapper.ram[0] = 0x21; // Firt RAM bank
             mapper.ram[RAM_BANK_SIZE] = 0x37; // Second RAM bank
             let mut memory = mem::Memory::new(mapper);
@@ -250,7 +252,7 @@ mod mbc {
 
         #[test]
         fn access_0h_20h_40h_60h_bank() {
-            let mut mapper = mbc::MBC1::new(mocked_rom(SZ_2MB));
+            let mut mapper = mbc::MBC1::new(mock_rom(SZ_2MB));
             mapper.rom[ROM_BANK_SIZE * 0x00] = 0x37;
             mapper.rom[ROM_BANK_SIZE * 0x01] = 0x01;
             mapper.rom[ROM_BANK_SIZE * 0x20] = 0x20;
@@ -288,7 +290,7 @@ mod mbc {
 
         #[test]
         fn multiple_reads() {
-            let mut mapper = mbc::MBC1::new(mocked_rom(SZ_2MB));
+            let mut mapper = mbc::MBC1::new(mock_rom(SZ_2MB));
             mapper.ram[3*RAM_BANK_SIZE] = 0x69;  
             mapper.ram[2*RAM_BANK_SIZE+1] = 0x70;
             mapper.rom[21*ROM_BANK_SIZE] = 0x11;
@@ -320,13 +322,14 @@ mod mbc {
         }
     }
 
+    #[cfg(test)]
     mod rom_only {
         use super::*;
 
         #[test]
         fn read() {
-            let rom = mocked_rom(SZ_32KB);
-            let mut mapper = mbc::RomOnly::new(rom.clone());
+            let rom = mock_rom(SZ_32KB);
+            let mapper = mbc::RomOnly::new(rom.clone());
             let mut memory = Memory::new(mapper);
 
             // Read from ROM
@@ -343,7 +346,7 @@ mod mbc {
         #[test]
         #[should_panic]
         fn write_rom() {
-            let mapper = mbc::RomOnly::new(mocked_rom(SZ_32KB));
+            let mapper = mbc::RomOnly::new(mock_rom(SZ_32KB));
             let mut memory = Memory::new(mapper);
 
             // Writing to ROM segment -> should panic
@@ -352,7 +355,7 @@ mod mbc {
 
         #[test]
         fn write_ram() {
-            let mapper = mbc::RomOnly::new(mocked_rom(SZ_32KB));
+            let mapper = mbc::RomOnly::new(mock_rom(SZ_32KB));
             let mut memory = Memory::new(mapper);
 
             memory.write(RAM_BASE_ADDR + 0x69, 0x21);
@@ -367,7 +370,7 @@ mod mbc {
         #[test]
         #[should_panic]
         fn accessing_switchable_ram() {
-            let mapper = mbc::RomOnly::new(mocked_rom(SZ_32KB));
+            let mapper = mbc::RomOnly::new(mock_rom(SZ_32KB));
             let mut memory = Memory::new(mapper);
 
             // Reading switchable RAM -> Rom only doesn't support it

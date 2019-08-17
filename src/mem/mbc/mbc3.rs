@@ -11,7 +11,6 @@ pub struct MBC3 {
     ram_rtc_enabled: bool,
     rom_idx: u8,
     ram_idx: u8,
-    // rtc_latch flag is used for detecting RTC 0x00 -> 0x01 write sequence
     rtc_latch: bool,
     pub rtc_reg: Vec<Byte>,
 }
@@ -24,7 +23,7 @@ impl MBC3 {
             ram_rtc_enabled: true, rom_idx: 1, ram_idx: 0,
             rtc_latch: false, rtc_reg: vec![0; RTC_REG_SIZE],
         }; 
-        if rom.len() > mbc.rom.len() { panic!("ROM too big for MBC1"); }
+        if rom.len() > mbc.rom.len() { panic!("ROM too big for MBC3"); }
         for (i, byte) in rom.into_iter().enumerate() { mbc.rom[i] = byte; }
         mbc
     }
