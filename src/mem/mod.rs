@@ -1,9 +1,7 @@
 pub mod mbc;
-pub mod gpu;
 pub mod ioregs;
 
 use mbc::*;
-use gpu::*;
 pub use ioregs::*;
 
 pub type Addr = u16;
@@ -39,11 +37,11 @@ pub struct Memory<T: BankController> {
     // Memory segments of corresponding devices
     pub bootstrap: Vec<Byte>,
     pub mapper: T,
-    pub gpu: GPU,
+    pub vram: Vec<Byte>,
+    pub oam: Vec<Byte>,
     pub ram: Vec<Byte>,
     pub stack: Vec<Byte>, 
     pub ioregs: IORegs,
-    boot_flg: bool, // true if CPU executing bootsrap code
 }
 
 impl <T: BankController>Memory<T> {
@@ -51,24 +49,20 @@ impl <T: BankController>Memory<T> {
         Self { 
             bootstrap: include_bytes!("bootstrap.bin").to_vec(),
             mapper: mapper,
-            gpu: GPU::new(),
+            vram: vec![0; VRAM_SIZE],
+            oam: vec![0; OAM_SIZE],
             ram: vec![0; RAM_BANK_SIZE],
             stack: vec![0; STACK_SIZE],
             ioregs: IORegs::new(),
-            boot_flg: false,
         }   
     }
-
-    /* boot_flg flag controls. If flag set, the 256 bytes of bootstrap code mapped to 0x0000-0x00FF */
-    pub fn map_bootsrap(&mut self) { self.boot_flg = true; }
-    pub fn unmap_bootsrap(&mut self) { self.boot_flg = false; }
 
     /*
      * WRITEs
      */
     pub fn write(&mut self, addr: Addr, byte: Byte) {
         // BOOTSTRAP ROM | BOOT Sequence
-        if addr < BOOSTRAP_SIZE as u16 && self.boot_flg
+        if addr < BOOSTRAP_SIZE as u16 && self.read(ioregs::BOOT_END) == 0 
             { panic!("Write to 0x{:x} bootstrap ROM.", addr) }
 
         // BASE ROM | 0x0000-0x3FFF
@@ -123,7 +117,7 @@ impl <T: BankController>Memory<T> {
     }
 
     fn write_vram(&mut self, _: Addr, offset: usize, value: Byte) { 
-        self.gpu.vram()[offset] = value;
+        self.vram[offset] = value;
     }
 
     fn write_switchable_ram(&mut self, addr: Addr, offset: usize, value: Byte) {
@@ -138,7 +132,7 @@ impl <T: BankController>Memory<T> {
     }
 
     fn write_oam(&mut self, _: Addr, offset: usize, value: Byte) {
-        self.gpu.oam()[offset] = value;
+        self.oam[offset] = value;
     }
 
     fn write_io_reg(&mut self, _: Addr, offset: usize, value: Byte) {
@@ -154,7 +148,7 @@ impl <T: BankController>Memory<T> {
      */
     pub fn read(&mut self, addr: Addr) -> Byte {
         // BOOTSTRAP ROM | BOOT Sequence
-        if addr < BOOSTRAP_SIZE as u16 && self.boot_flg
+        if addr < BOOSTRAP_SIZE as u16 && self.read(ioregs::BOOT_END) == 0
             { self.bootstrap[addr as usize] }
         
         // BASE ROM | 0x0000-0x3FFF
@@ -203,7 +197,7 @@ impl <T: BankController>Memory<T> {
     }
 
     fn read_vram(&mut self, _: Addr, offset: usize) -> Byte { 
-        self.gpu.vram()[offset] 
+        self.vram[offset] 
     }
 
     fn read_switchable_ram(&mut self, _: Addr, offset: usize) -> Byte {
@@ -215,7 +209,7 @@ impl <T: BankController>Memory<T> {
     }
 
     fn read_oam(&mut self, _: Addr, offset: usize) -> Byte {
-        self.gpu.oam()[offset]
+        self.oam[offset]
     }
 
     fn read_io_reg(&mut self, _: Addr, offset: usize) -> Byte {

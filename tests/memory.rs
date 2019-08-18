@@ -15,14 +15,14 @@ mod memory {
         #[should_panic]
         fn write_to_bootstrap() {
             let mut memory = mock_memory(SZ_2MB);
-            memory.map_bootsrap();
+            memory.write(BOOT_END, 0);
             memory.write(0x0000, 0x21);
         }
 
         #[test]
         fn map_unmap() {
             let mut memory = mock_memory(SZ_2MB);
-            memory.map_bootsrap();
+            memory.write(BOOT_END, 0);
 
             // Check first bytes of bootsrap
             assert_eq!(memory.read(0), 0x31);
@@ -31,7 +31,7 @@ mod memory {
             assert_eq!(memory.read(0xA0), 0x05);
             assert_eq!(memory.read(255), 0x50);
 
-            memory.unmap_bootsrap();
+            memory.write(BOOT_END, 1);
             assert_eq!(memory.read(0), 0);
             assert_eq!(memory.read(1), 0);
             assert_eq!(memory.read(16), 0);
@@ -51,20 +51,19 @@ mod memory {
             memory.write(VRAM_ADDR + 0x69, 0x21);
             memory.write(VRAM_ADDR + VRAM_SIZE as u16 - 1, 0x37);
 
-            let vram = memory.gpu.vram();
-            assert_eq!(vram[0], 0x01);
-            assert_eq!(vram[0x69], 0x21);
-            assert_eq!(vram[vram.len()-1], 0x37);
+            assert_eq!(memory.vram[0], 0x01);
+            assert_eq!(memory.vram[0x69], 0x21);
+            assert_eq!(memory.vram[memory.vram.len()-1], 0x37);
         }
 
         #[test]
         fn vram_read() {
             let mut memory = mock_memory(SZ_2MB);
+            let len = memory.vram.len();
 
-            let vram = memory.gpu.vram();
-            vram[0] = 0x1;
-            vram[0x69] = 0x21;
-            vram[vram.len() - 1] = 0x37;
+            memory.vram[0] = 0x1;
+            memory.vram[0x69] = 0x21;
+            memory.vram[len - 1] = 0x37;
 
             assert_eq!(memory.read(VRAM_ADDR), 0x01);
             assert_eq!(memory.read(VRAM_ADDR + 0x69), 0x21);
@@ -79,20 +78,19 @@ mod memory {
             memory.write(OAM_ADDR + 0x69, 0x21);
             memory.write(OAM_ADDR + OAM_SIZE as u16 - 1, 0x37);
 
-            let oam = memory.gpu.oam();
-            assert_eq!(oam[0], 0x01);
-            assert_eq!(oam[0x69], 0x21);
-            assert_eq!(oam[oam.len()-1], 0x37);
+            assert_eq!(memory.oam[0], 0x01);
+            assert_eq!(memory.oam[0x69], 0x21);
+            assert_eq!(memory.oam[memory.oam.len()-1], 0x37);
         }
 
         #[test]
         fn oam_read() {
             let mut memory = mock_memory(SZ_2MB);
+            let len = memory.oam.len();
 
-            let oam = memory.gpu.oam();
-            oam[0] = 0x1;
-            oam[0x69] = 0x21;
-            oam[oam.len() - 1] = 0x37;
+            memory.oam[0] = 0x1;
+            memory.oam[0x69] = 0x21;
+            memory.oam[len - 1] = 0x37;
 
             assert_eq!(memory.read(OAM_ADDR), 0x01);
             assert_eq!(memory.read(OAM_ADDR + 0x69), 0x21);

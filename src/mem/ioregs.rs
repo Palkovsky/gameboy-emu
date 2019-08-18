@@ -42,6 +42,7 @@ pub const OBP_0: u16 = 0xFF48;
 pub const OBP_1: u16 = 0xFF49;
 pub const WY: u16 = 0xFF4A;
 pub const WX: u16 = 0xFF4B;
+pub const BOOT_END: u16 = 0xFF50;
 pub const IE: u16 = 0xFFFF;
 
 pub struct IORegs {
