@@ -1,7 +1,7 @@
 extern crate gameboy;
 
 #[cfg(test)]
-mod mbc {
+mod mbctest {
     use gameboy::*;
 
     const SZ_32KB: usize = 1 << 15;
@@ -18,10 +18,9 @@ mod mbc {
     fn mock_mbc2() -> mbc::MBC2 { mbc::MBC2::new(mock_rom(SZ_256KB)) }
     fn mock_mbc3() -> mbc::MBC3 { mbc::MBC3::new(mock_rom(SZ_2MB)) }
 
-    fn mock_memory<T: mbc::BankController>(mapper: T) -> Memory<T> {
-        let mut mem = mem::Memory::new(mapper);
-        // Disable bootstrap mapping
-        mem.write(BOOT_END, 1); 
+    fn mock_memory<T: mbc::BankController>(mapper: T) -> MMU<T> {
+        let mut mem = mem::MMU::new(mapper);
+        mem.write(BOOT_END, 1); // Disable bootstrap mapping
         mem
     }
 

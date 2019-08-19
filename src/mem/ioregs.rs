@@ -1,4 +1,4 @@
-use super::*;
+use super::{IO_REGS_ADDR, MutMem, Byte};
 
 pub const P1: u16 = 0xFF00;
 pub const SB: u16 = 0xFF01;

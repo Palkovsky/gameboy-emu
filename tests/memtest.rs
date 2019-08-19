@@ -1,13 +1,17 @@
+extern crate gameboy;
+
 #[cfg(test)]
-mod memory {
+mod memtest {
     use gameboy::*;
 
     const SZ_2MB: usize = 1 << 21;
-    fn mock_memory(rom_size: usize) -> Memory<mbc::MBC1> {
+    
+    fn mock_memory(rom_size: usize) -> MMU<mbc::MBC1> {
         let mapper = mbc::MBC1::new(vec![0; rom_size]);
-        mem::Memory::new(mapper)
+        mem::MMU::new(mapper)
     }
 
+    #[cfg(test)]
     mod boot {
         use super::*;
 
@@ -98,6 +102,7 @@ mod memory {
         }
     }
 
+    #[cfg(test)]
     mod ioregs {
         use super::*;
 
@@ -120,7 +125,7 @@ mod memory {
 
             let lcdc = memory.read(LCDC);
             memory.write(LCDC, lcdc | 0x02);
-            assert_eq!(memory.read(LCDC), 0x91 | 0x02);
+            assert_eq!(memory.read(mem::ioregs::LCDC), 0x91 | 0x02);
 
             let ie = memory.read(IE);
             memory.write(IE, ie | 0x0F);

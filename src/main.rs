@@ -2,6 +2,8 @@ pub mod mem;
 pub use mem::*;
 pub mod utils;
 pub use utils::*;
+pub mod dev;
+pub use dev::*;
 
 use std::{env, fs, io};
 use io::prelude::*;
@@ -19,5 +21,6 @@ fn main() -> io::Result<()> {
         .take(0x150).skip(0x100)
         .map(|x| *x).collect());
     println!("{}", header);
+
     Ok(())
 }
