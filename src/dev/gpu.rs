@@ -56,7 +56,6 @@ pub struct GPU {
     ptr_x: u8,
     ptr_y: u8,
     cycle: u64,
-    first_step: bool,
     pub framebuff: Vec<Color>,
     
     // LCDC
@@ -106,7 +105,6 @@ impl GPU {
     pub fn new() -> Self {
         Self {
             framebuff: vec![WHITE; SCREEN_WIDTH*SCREEN_HEIGHT],
-            first_step: true,
             ..Default::default()
         }
     }
@@ -121,25 +119,17 @@ impl GPU {
         mmu.write(ioregs::IF, iflg | 2);
     }
 
-    fn update_ly<T: BankController>(&mut self, mmu: &mut MMU<T>) {
-        // Update LY, set/unset coincidence flag
-        mmu.write(ioregs::LY, self.ptr_y);
-        self.COINCIDENCE_FLAG = mmu.read(ioregs::LY) == mmu.read(ioregs::LYC);
-        self.flush_regs(mmu);
-    
-        // If coincidence interrupt set -> make STAT interrupt
-        if self.COINCIDENCE_FLAG && self.COINCIDENCE_INTERRUPT_ENABLE {
-            GPU::stat_int(mmu);
-        }
-    }
-
     // VBLANK_START
     fn on_vblank_start<T: BankController>(&mut self, mmu: &mut MMU<T>) {
         self.MODE = GPUMode::VBLANK;
         self.ptr_y += 1;
         self.ptr_x = 0;
-        self.update_ly(mmu);
+
+        self.flush_regs(mmu);
         GPU::vblank_int(mmu);
+        if self.MODE_1_VBLANK_INTERRUPT_ENABLE {
+            GPU::stat_int(mmu);
+        }
     }
 
     // VBLANK END
@@ -147,7 +137,11 @@ impl GPU {
         self.MODE = GPUMode::OAM_SEARCH;
         self.ptr_y = 0;
         self.ptr_x = 0;
-        self.update_ly(mmu);
+
+        self.flush_regs(mmu);
+        if self.MODE_2_OAM_INTERRUPT_ENABLE || (self.COINCIDENCE_INTERRUPT_ENABLE && self.COINCIDENCE_FLAG) {
+            GPU::stat_int(mmu);
+        }
     }
 
     // MID VBLANK
@@ -156,12 +150,21 @@ impl GPU {
         if self.cycle % SCANLINE_CYCLES != SCANLINE_CYCLES - 1 { return }
         self.ptr_y += 1;
         self.ptr_x = 0;
-        self.update_ly(mmu); 
+
+        self.flush_regs(mmu);
+        if self.COINCIDENCE_INTERRUPT_ENABLE && self.COINCIDENCE_FLAG {
+            GPU::stat_int(mmu);
+        }
     }
 
     // HBLANK START
-    fn on_hblank_start<T: BankController>(&mut self, _: &mut MMU<T>) {
+    fn on_hblank_start<T: BankController>(&mut self, mmu: &mut MMU<T>) {
         self.MODE = GPUMode::HBLANK;
+
+        self.flush_regs(mmu);
+        if self.MODE_0_HBLANK_INTERRUPT_ENABLE {
+            GPU::stat_int(mmu);
+        }
     }
 
     // HBLANK END
@@ -170,16 +173,25 @@ impl GPU {
         self.MODE = GPUMode::OAM_SEARCH;
         self.ptr_y += 1;
         self.ptr_x = 0;
-        self.update_ly(mmu);
+        
+        self.flush_regs(mmu);
+        if self.MODE_2_OAM_INTERRUPT_ENABLE {
+            GPU::stat_int(mmu);
+        }
     }
 
     // LCD TRANSFER START
-    fn on_lcd_start<T: BankController>(&mut self, _: &mut MMU<T>){
+    fn on_lcd_start<T: BankController>(&mut self, mmu: &mut MMU<T>){
         self.MODE = GPUMode::LCD_TRANSFER;
+
+        self.flush_regs(mmu);
+        if self.COINCIDENCE_INTERRUPT_ENABLE && self.COINCIDENCE_FLAG {
+            GPU::stat_int(mmu);
+        }
     }
 
     // MID LCD TRANSFER
-    fn on_lcd_update<T: BankController>(&mut self, mmu: &mut MMU<T>) {
+    fn on_lcd_update<T: BankController>(&mut self, mmu: &mut MMU<T>) {        
         /*
          * BACKGROUND RENDER CODE
          */
@@ -222,12 +234,6 @@ impl GPU {
         // Re-read registers for updated config
         self.reread_regs(mmu);
 
-        // Update IO regs if this is first call of step()
-        if self.first_step { 
-            self.update_ly(mmu);
-            self.first_step = false;
-        }
-
         // Where are we on current scanline?
         let line_cycle = self.cycle % SCANLINE_CYCLES;
 
@@ -265,6 +271,8 @@ impl GPU {
     }
 
     pub fn reread_regs<T: BankController>(&mut self,mmu: &mut MMU<T>) {
+        self.COINCIDENCE_FLAG = self.ptr_y == mmu.read(ioregs::LYC);
+
         self.lcdc(mmu.read(ioregs::LCDC));
         self.stat(mmu.read(ioregs::STAT));
         self.bgp(mmu.read(ioregs::BGP));
@@ -272,7 +280,10 @@ impl GPU {
         self.obp1(mmu.read(ioregs::OBP_1));
     }
 
-    pub fn flush_regs<T: BankController>(&self, mmu: &mut MMU<T>) {
+    pub fn flush_regs<T: BankController>(&mut self, mmu: &mut MMU<T>) {
+        mmu.write(ioregs::LY, self.ptr_y);
+        self.COINCIDENCE_FLAG = self.ptr_y == mmu.read(ioregs::LYC);
+        println!("LY: {}, LYC: {}, FLG: {}", self.ptr_y, mmu.read(ioregs::LYC), self.COINCIDENCE_FLAG);
         mmu.write(ioregs::LCDC, self.lcdc_new());
         mmu.write(ioregs::STAT, self.stat_new());
         mmu.write(ioregs::BGP, self.bgp_new());

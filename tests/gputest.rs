@@ -80,8 +80,36 @@ mod gputest {
         assert_eq!(gpu.MODE_0_HBLANK_INTERRUPT_ENABLE, false);
         assert_eq!(gpu.COINCIDENCE_FLAG, true);
         assert_eq!(gpu.MODE, gpu::GPUMode::OAM_SEARCH);
+    }
 
+    #[test]
+    fn coincidence_flag() {
+        let (mut mmu, mut gpu) = mock();
 
+        for i in 0..gpu::SCREEN_HEIGHT+gpu::VBLANK_HEIGHT {
+            let lyc = i as u64;
+            mmu.write(LYC, lyc as u8);
+            // flush_regs will update COINCIDENCE_FLAG to current LYC
+            gpu.flush_regs(&mut mmu);
+
+            // All scanlnes before LYC
+            for _ in 0..lyc*gpu::SCANLINE_CYCLES {
+                assert_eq!(gpu.COINCIDENCE_FLAG, false);
+                gpu.step(&mut mmu);
+            }
+
+            // One line of LYC
+            for _ in 0..gpu::SCANLINE_CYCLES {
+                assert_eq!(gpu.COINCIDENCE_FLAG, true);
+                gpu.step(&mut mmu);
+            }
+
+            // Rest of scanlines in current frame
+            for _ in 0..gpu::SCANLINE_CYCLES*(SCREEN_HEIGHT as u64 + VBLANK_HEIGHT as u64 - lyc - 1) {
+                assert_eq!(gpu.COINCIDENCE_FLAG, false);
+                gpu.step(&mut mmu);
+            }
+        }
     }
 
     #[test]
