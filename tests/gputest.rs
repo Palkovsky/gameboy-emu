@@ -56,19 +56,19 @@ mod gputest {
     }
 
     #[test]
-    fn flag_updates() {
+    fn register_updates() {
         let (mut mmu, mut gpu) = mock();
 
         mmu.write(ioregs::LCDC, 0b10010001);
         gpu.step(&mut mmu);
 
         assert_eq!(gpu.LCD_DISPLAY_ENABLE, true);
-        assert_eq!(gpu.WINDOW_TILE_MAP_SELECT, false);
-        assert_eq!(gpu.WINDOW_DISPLAY_ENABLE, false);
-        assert_eq!(gpu.BG_WINDOW_TILE_DATA_SELECT, true);
-        assert_eq!(gpu.BG_TILE_MAP_DISPLAY_SELECT, false);
+        assert_eq!(gpu.WINDOW_TILE_MAP, false);
+        assert_eq!(gpu.WINDOW_ENABLED, false);
+        assert_eq!(gpu.TILE_ADDRESSING, true);
+        assert_eq!(gpu.BG_TILE_MAP, false);
         assert_eq!(gpu.SPRITE_SIZE, false);
-        assert_eq!(gpu.SPRITE_DISPLAY_ENABLE, false);
+        assert_eq!(gpu.SPRITE_ENABLED, false);
         assert_eq!(gpu.DISPLAY_PRIORITY, true);
 
         mmu.write(ioregs::STAT, 0b10010000);
@@ -80,5 +80,64 @@ mod gputest {
         assert_eq!(gpu.MODE_0_HBLANK_INTERRUPT_ENABLE, false);
         assert_eq!(gpu.COINCIDENCE_FLAG, true);
         assert_eq!(gpu.MODE, gpu::GPUMode::OAM_SEARCH);
+
+
+    }
+
+    #[test]
+    fn palette_updates() {
+        let (mut mmu, mut gpu) = mock();
+        
+        mmu.write(ioregs::BGP, 0);
+        mmu.write(ioregs::OBP_0, 0);
+        mmu.write(ioregs::OBP_1, 0);
+        gpu.step(&mut mmu);
+
+        assert_eq!(gpu.BG_COLOR_3_SHADE, 0);
+        assert_eq!(gpu.BG_COLOR_2_SHADE, 0);
+        assert_eq!(gpu.BG_COLOR_1_SHADE, 0);
+        assert_eq!(gpu.BG_COLOR_0_SHADE, 0);
+
+        assert_eq!(gpu.OBP0_COLOR_3_SHADE, 0);
+        assert_eq!(gpu.OBP0_COLOR_2_SHADE, 0);
+        assert_eq!(gpu.OBP0_COLOR_1_SHADE, 0);
+        assert_eq!(gpu.OBP0_COLOR_0_SHADE, 0);
+
+        assert_eq!(gpu.OBP1_COLOR_3_SHADE, 0);
+        assert_eq!(gpu.OBP1_COLOR_2_SHADE, 0);
+        assert_eq!(gpu.OBP1_COLOR_1_SHADE, 0);
+        assert_eq!(gpu.OBP1_COLOR_0_SHADE, 0);
+
+        mmu.write(ioregs::BGP, 0b10111101);
+        mmu.write(ioregs::OBP_0, 0b00011011);
+        mmu.write(ioregs::OBP_1, 0b11001001);
+        gpu.step(&mut mmu);
+
+        assert_eq!(gpu.BG_COLOR_3_SHADE, 2);
+        assert_eq!(gpu.BG_COLOR_2_SHADE, 3);
+        assert_eq!(gpu.BG_COLOR_1_SHADE, 3);
+        assert_eq!(gpu.BG_COLOR_0_SHADE, 1);
+        assert_eq!(gpu.bg_color(3), gpu::DARK_GRAY);
+        assert_eq!(gpu.bg_color(2), gpu::BLACK);
+        assert_eq!(gpu.bg_color(1), gpu::BLACK);
+        assert_eq!(gpu.bg_color(0), gpu::LIGHT_GRAY);
+
+        assert_eq!(gpu.OBP0_COLOR_3_SHADE, 0);
+        assert_eq!(gpu.OBP0_COLOR_2_SHADE, 1);
+        assert_eq!(gpu.OBP0_COLOR_1_SHADE, 2);
+        assert_eq!(gpu.OBP0_COLOR_0_SHADE, 3);
+        assert_eq!(gpu.obp0_color(3), gpu::WHITE);
+        assert_eq!(gpu.obp0_color(2), gpu::LIGHT_GRAY);
+        assert_eq!(gpu.obp0_color(1), gpu::DARK_GRAY);
+        assert_eq!(gpu.obp0_color(0), gpu::BLACK);
+
+        assert_eq!(gpu.OBP1_COLOR_3_SHADE, 3);
+        assert_eq!(gpu.OBP1_COLOR_2_SHADE, 0);
+        assert_eq!(gpu.OBP1_COLOR_1_SHADE, 2);
+        assert_eq!(gpu.OBP1_COLOR_0_SHADE, 1);
+        assert_eq!(gpu.obp1_color(3), gpu::BLACK);
+        assert_eq!(gpu.obp1_color(2), gpu::WHITE);
+        assert_eq!(gpu.obp1_color(1), gpu::DARK_GRAY);
+        assert_eq!(gpu.obp1_color(0), gpu::LIGHT_GRAY);
     }
 }
