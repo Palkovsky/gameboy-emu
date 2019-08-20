@@ -89,6 +89,7 @@ mod gputest {
         for i in 0..gpu::SCREEN_HEIGHT+gpu::VBLANK_HEIGHT {
             let lyc = i as u64;
             mmu.write(LYC, lyc as u8);
+            gpu.LCD_DISPLAY_ENABLE = true;
             // flush_regs will update COINCIDENCE_FLAG to current LYC
             gpu.flush_regs(&mut mmu);
 

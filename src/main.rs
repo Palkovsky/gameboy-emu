@@ -18,6 +18,9 @@ const SCALE: u32 = 4;
 const A_CHAR: [u8; 16] = [
     0x7C, 0x7C, 0x00, 0xC6, 0xC6, 0x00, 0x00, 0xFE, 0xC6, 0xC6, 0x00, 0xC6, 0xC6, 0x00, 0x00, 0x00,
 ];
+const BLACK_TILE: [u8; 16] = [
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+];
 
 fn main() -> Result<(), String> {
     /*
@@ -38,7 +41,10 @@ fn main() -> Result<(), String> {
     let mut mmu = MMU::new(MBC1::new(vec![0; 1 << 21]));
     let mut gpu = GPU::new();
 
+    for (i, byte) in BLACK_TILE.iter().enumerate() { mmu.write(32 + 0x9000 + i as u16, *byte); }
     for (i, byte) in A_CHAR.iter().enumerate() { mmu.write(16 + 0x9000 + i as u16, *byte); }
+
+    mmu.write(TILE_MAP_2, 2);
     mmu.write(TILE_MAP_2 + 20, 1);
     mmu.write(TILE_MAP_2 + 26, 1);
     mmu.write(TILE_MAP_2 + 30, 1);
@@ -46,14 +52,20 @@ fn main() -> Result<(), String> {
     mmu.write(TILE_MAP_2 + 32, 1);
     mmu.write(TILE_MAP_2 + 32*31, 1);
     mmu.write(TILE_MAP_2 + 32*32 - 1, 1);
+    for i in 0..1024 { mmu.write(TILE_MAP_1 + i, 2); }
     
     mmu.write(SCX, 0);
     mmu.write(SCY, 0);
+    mmu.write(WX, SCREEN_WIDTH as u8/2);
+    mmu.write(WY, (SCREEN_HEIGHT as f64 * 0.25) as u8);
     mmu.write(BGP, 0b11100100);
-    gpu.reread_regs(&mut mmu);
 
+    gpu.reread_regs(&mut mmu);
+    gpu.LCD_DISPLAY_ENABLE = true;  
+    gpu.WINDOW_ENABLED = true;
     gpu.TILE_ADDRESSING = false;
     gpu.BG_TILE_MAP = true;
+    gpu.WINDOW_TILE_MAP = false;
     gpu.flush_regs(&mut mmu);
 
     for _ in 0..FRAME_CYCLES { gpu.step(&mut mmu); }
@@ -61,17 +73,14 @@ fn main() -> Result<(), String> {
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
     let window = video_subsystem.window("Chip-8 emu", SCALE * SCREEN_WIDTH as u32, SCALE * SCREEN_HEIGHT as u32)
-        .position_centered().opengl()
+        .position_centered()
+        .opengl()
         .build()
         .map_err(|e| e.to_string())?;
     let mut events = sdl_context.event_pump()?;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
-    canvas.set_draw_color(Color::RGB(0, 0, 0));
-    canvas.clear();
-    canvas.present();
     
     'emulating: loop {
-
         for _ in 0..FRAME_CYCLES { gpu.step(&mut mmu); }
 
         for event in events.poll_iter() {
@@ -79,6 +88,7 @@ fn main() -> Result<(), String> {
                  break 'emulating; 
             }
             match event {
+                // SCX/SCY controls
                 Event::KeyDown { keycode: Some(Keycode::A), .. } => { 
                     let scx = Wrapping(mmu.read(SCX)) - Wrapping(1);
                     mmu.write(ioregs::SCX, scx.0);
@@ -94,6 +104,30 @@ fn main() -> Result<(), String> {
                 Event::KeyDown { keycode: Some(Keycode::S), .. } => { 
                     let scy = Wrapping(mmu.read(SCY)) + Wrapping(1);
                     mmu.write(ioregs::SCY, scy.0);
+                },
+
+                // Window ON/OFF switch
+                Event::KeyDown { keycode: Some(Keycode::F), .. } => {
+                    gpu.WINDOW_ENABLED ^= true;
+                    gpu.flush_regs(&mut mmu);
+                },
+
+                // Window WX/WY controls
+                Event::KeyDown { keycode: Some(Keycode::Left), .. } => { 
+                    let wx = Wrapping(mmu.read(WX)) - Wrapping(1);
+                    mmu.write(ioregs::WX, wx.0);
+                },
+                Event::KeyDown { keycode: Some(Keycode::Right), .. } => { 
+                    let wx = Wrapping(mmu.read(WX)) + Wrapping(1);
+                    mmu.write(ioregs::WX, wx.0);
+                },
+                Event::KeyDown { keycode: Some(Keycode::Up), .. } => { 
+                    let wy = Wrapping(mmu.read(WY)) - Wrapping(1);
+                    mmu.write(ioregs::WY, wy.0);
+                },
+                Event::KeyDown { keycode: Some(Keycode::Down), .. } => { 
+                    let wy = Wrapping(mmu.read(WY)) + Wrapping(1);
+                    mmu.write(ioregs::WY, wy.0);
                 },
                 _ => {}
             }

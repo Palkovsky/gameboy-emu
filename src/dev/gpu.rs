@@ -9,12 +9,12 @@ pub const VBLANK_HEIGHT: usize = 10;
  * MODE 1 - VBLANK
  * MODE 2 - OAM SEARCH
  * MODE 3 - LCD TRANSFER
- * Below values keep orginal ratio of phases, but provide per-dot granularity.
- * OAM: 20, LCD: 43, HBLANK: 51. I assume LCD=160 so I had to change other values accrodingly to keep similar proportions.
+ * Below values are internal cycles. To convert to CPU cycles: x*43/160.
+ * CPU CYCLES: OAM: 20, LCD: 43, HBLANK: 51. I assume LCD=160 so I had to change other values accrodingly to keep similar proportions.
  */
-pub const OAM_SEARCH_CYCLES: u64 = 74;
+pub const OAM_SEARCH_CYCLES: u64 = 70;
 pub const LCD_TRANSFER_CYCLES: u64 = 160;
-pub const HBLANK_CYCLES: u64 = 190;
+pub const HBLANK_CYCLES: u64 = 188;
 pub const SCANLINE_CYCLES: u64 = OAM_SEARCH_CYCLES + LCD_TRANSFER_CYCLES + HBLANK_CYCLES;
 pub const VBLANK_CYCLES: u64 = SCANLINE_CYCLES * VBLANK_HEIGHT as u64;
 pub const FRAME_CYCLES: u64 = SCANLINE_CYCLES * (SCREEN_HEIGHT + VBLANK_HEIGHT) as u64;
@@ -56,6 +56,7 @@ pub struct GPU {
     ptr_x: u8,
     ptr_y: u8,
     cycle: u64,
+    window_in_line: bool, // was window drawn in current line?
     pub framebuff: Vec<Color>,
     
     // LCDC
@@ -104,7 +105,7 @@ pub struct GPU {
 impl GPU {
     pub fn new() -> Self {
         Self {
-            framebuff: vec![WHITE; SCREEN_WIDTH*SCREEN_HEIGHT],
+            framebuff: vec![WHITE; SCREEN_WIDTH*SCREEN_HEIGHT], window_in_line: false,
             ..Default::default()
         }
     }
@@ -137,6 +138,7 @@ impl GPU {
         self.MODE = GPUMode::OAM_SEARCH;
         self.ptr_y = 0;
         self.ptr_x = 0;
+        self.window_in_line = false;
 
         self.flush_regs(mmu);
         if self.MODE_2_OAM_INTERRUPT_ENABLE || (self.COINCIDENCE_INTERRUPT_ENABLE && self.COINCIDENCE_FLAG) {
@@ -160,7 +162,6 @@ impl GPU {
     // HBLANK START
     fn on_hblank_start<T: BankController>(&mut self, mmu: &mut MMU<T>) {
         self.MODE = GPUMode::HBLANK;
-
         self.flush_regs(mmu);
         if self.MODE_0_HBLANK_INTERRUPT_ENABLE {
             GPU::stat_int(mmu);
@@ -173,6 +174,7 @@ impl GPU {
         self.MODE = GPUMode::OAM_SEARCH;
         self.ptr_y += 1;
         self.ptr_x = 0;
+        self.window_in_line = false;
         
         self.flush_regs(mmu);
         if self.MODE_2_OAM_INTERRUPT_ENABLE {
@@ -191,19 +193,25 @@ impl GPU {
     }
 
     // MID LCD TRANSFER
+    // Currently it draws one pixel. In future it should draw whole single line and update clock accrodingly.
     fn on_lcd_update<T: BankController>(&mut self, mmu: &mut MMU<T>) {        
-        /*
-         * BACKGROUND RENDER CODE
-         */
-        let scx = mmu.read(ioregs::SCX);
-        let scy = mmu.read(ioregs::SCY);
+        let wx =  mmu.read(ioregs::WX);
+        let wy =  mmu.read(ioregs::WY);
+        let is_window = self.WINDOW_ENABLED && self.ptr_x >= wx && self.ptr_y >= wy && wx >= 7 && wx <= 166 && wy <= 143;
 
-        let x = (scx as u16 + self.ptr_x as u16) % 256;
-        let y = (scy as u16 + self.ptr_y as u16) % 256;
+        let (x, y, tile_map_base) = if is_window {
+            self.window_in_line = true;
+            (self.ptr_x as u16 - 7, self.ptr_y as u16, if self.WINDOW_TILE_MAP { TILE_MAP_2 } else { TILE_MAP_1 })
+        } else {
+            let scx = mmu.read(ioregs::SCX);
+            let scy = mmu.read(ioregs::SCY);
+            ((scx as u16 + self.ptr_x as u16) % 256, (scy as u16 + self.ptr_y as u16) % 256, if self.BG_TILE_MAP { TILE_MAP_2 } else { TILE_MAP_1 })
+        };
+
+        /* BACKGROUND/WINDOW RENDERING */
         let x_tile = x/8;
         let y_tile = y/8;
         let off = (32*y_tile + x_tile) % 1024;
-        let tile_map_base = if self.BG_TILE_MAP { TILE_MAP_2 } else { TILE_MAP_1 };
         let tile_num = mmu.read(tile_map_base + off);
 
         let tile_addr = 
@@ -234,6 +242,10 @@ impl GPU {
         // Re-read registers for updated config
         self.reread_regs(mmu);
 
+        if !self.LCD_DISPLAY_ENABLE {
+            return
+        }
+
         // Where are we on current scanline?
         let line_cycle = self.cycle % SCANLINE_CYCLES;
 
@@ -247,6 +259,7 @@ impl GPU {
         }
         // Starting HBLANK
         else if self.MODE == GPUMode::LCD_TRANSFER && self.ptr_x == SCREEN_WIDTH as u8 - 1 {
+            self.on_lcd_update(mmu);
             self.on_hblank_start(mmu);
         }
         // Ending HBLANK
