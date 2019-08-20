@@ -27,7 +27,7 @@ pub const TILE_SIZE: u16 = 16;
 
 pub type Color = (u8, u8, u8);
 pub const WHITE: Color = (255, 255, 255);
-pub const LIGHT_GRAY: Color = (149, 168, 189);
+pub const LIGHT_GRAY: Color = (110, 123, 138);
 pub const DARK_GRAY: Color = (91, 97, 105);
 pub const BLACK: Color = (0, 0, 0);
 
@@ -198,10 +198,10 @@ impl GPU {
         let scx = mmu.read(ioregs::SCX);
         let scy = mmu.read(ioregs::SCY);
 
-        let x = self.ptr_x as u16/8;
-        let y = self.ptr_y as u16/8;
-        let x_tile = (scx as u16 + x) % 32;
-        let y_tile = (scy as u16 + y) % 32;
+        let x = (scx as u16 + self.ptr_x as u16) % 256;
+        let y = (scy as u16 + self.ptr_y as u16) % 256;
+        let x_tile = x/8;
+        let y_tile = y/8;
         let off = (32*y_tile + x_tile) % 1024;
         let tile_map_base = if self.BG_TILE_MAP { TILE_MAP_2 } else { TILE_MAP_1 };
         let tile_num = mmu.read(tile_map_base + off);
@@ -215,8 +215,8 @@ impl GPU {
 
         // Load tile data
         let tile: Vec<u8> = (0..TILE_SIZE).map(|i| mmu.read(tile_addr + i)).collect();
-        let byte_x = self.ptr_x as u16 - x*8;
-        let byte_y = (self.ptr_y as u16 - y*8) as usize;
+        let byte_x = x - x_tile*8;
+        let byte_y = (y - y_tile*8) as usize;
         let (b1, b2) = (tile[2*byte_y], tile[2*byte_y+1]);
         let color = match (b2 & (0x80 >> byte_x) != 0, b1 & (0x80 >> byte_x) != 0) {
             (true, true) => 3,
@@ -283,7 +283,7 @@ impl GPU {
     pub fn flush_regs<T: BankController>(&mut self, mmu: &mut MMU<T>) {
         mmu.write(ioregs::LY, self.ptr_y);
         self.COINCIDENCE_FLAG = self.ptr_y == mmu.read(ioregs::LYC);
-        println!("LY: {}, LYC: {}, FLG: {}", self.ptr_y, mmu.read(ioregs::LYC), self.COINCIDENCE_FLAG);
+        //println!("LY: {}, LYC: {}, FLG: {}", self.ptr_y, mmu.read(ioregs::LYC), self.COINCIDENCE_FLAG);
         mmu.write(ioregs::LCDC, self.lcdc_new());
         mmu.write(ioregs::STAT, self.stat_new());
         mmu.write(ioregs::BGP, self.bgp_new());

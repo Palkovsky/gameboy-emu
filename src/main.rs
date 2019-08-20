@@ -44,11 +44,12 @@ fn main() -> Result<(), String> {
     mmu.write(TILE_MAP_2 + 30, 1);
     mmu.write(TILE_MAP_2 + 31, 1);
     mmu.write(TILE_MAP_2 + 32, 1);
+    mmu.write(TILE_MAP_2 + 32*31, 1);
     mmu.write(TILE_MAP_2 + 32*32 - 1, 1);
     
     mmu.write(SCX, 0);
     mmu.write(SCY, 0);
-    mmu.write(BGP, 0b11111100);
+    mmu.write(BGP, 0b11100100);
     gpu.reread_regs(&mut mmu);
 
     gpu.TILE_ADDRESSING = false;
