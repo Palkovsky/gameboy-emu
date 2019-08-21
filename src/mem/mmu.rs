@@ -5,13 +5,15 @@ use super::*;
  * It routes writes/reads to proper places i.e.: RAM in cart or internal VRAM. 
  */
 pub struct MMU<T: BankController> {
-    // MMU segments of corresponding devices
+    /* bootrap contains 256 of boot code. it gets executed first */
     pub bootstrap: Vec<Byte>,
+    /* mapper represents the cartdrige and implements its own bank-switching method */
     pub mapper: T,
+    /* Different segments of memory map */
     pub vram: Vec<Byte>,
     pub oam: Vec<Byte>,
     pub ram: Vec<Byte>,
-    pub stack: Vec<Byte>, 
+    pub hram: Vec<Byte>, 
     pub ioregs: IORegs,
 }
 
@@ -23,7 +25,7 @@ impl <T: BankController>MMU<T> {
             vram: vec![0; VRAM_SIZE],
             oam: vec![0; OAM_SIZE],
             ram: vec![0; RAM_BANK_SIZE],
-            stack: vec![0; STACK_SIZE],
+            hram: vec![0; HRAM_SIZE],
             ioregs: IORegs::new(),
         }   
     }
@@ -68,7 +70,7 @@ impl <T: BankController>MMU<T> {
         else if addr < STACK_ADDR || addr == 0xFFFF 
             { self.write_io_reg(addr, (addr - IO_REGS_ADDR) as usize, byte) }
         
-        // High RAM - 0xFF80-0xFFFE(stack goes here)
+        // High RAM - 0xFF80-0xFFFE(hram goes here)
         else 
             { self.write_to_stack(addr, (addr - STACK_ADDR) as usize, byte) }
     }
@@ -111,7 +113,7 @@ impl <T: BankController>MMU<T> {
     }
 
     fn write_to_stack(&mut self, _: Addr, offset: usize, value: Byte) {
-        self.stack[offset] = value;
+        self.hram[offset] = value;
     }
 
     /*
@@ -154,7 +156,7 @@ impl <T: BankController>MMU<T> {
         else if addr < STACK_ADDR || addr == 0xFFFF
             { self.read_io_reg(addr, (addr - IO_REGS_ADDR) as usize) }
 
-        // High RAM - 0xFF80-0xFFFE( stack goes here)
+        // High RAM - 0xFF80-0xFFFE( hram goes here)
         else 
             { self.read_stack(addr, (addr - STACK_ADDR) as usize) }
     }
@@ -188,6 +190,6 @@ impl <T: BankController>MMU<T> {
     }
 
     fn read_stack(&mut self, _: Addr, offset: usize) -> Byte {
-        self.stack[offset]
+        self.hram[offset]
     }
 }

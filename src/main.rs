@@ -4,6 +4,8 @@ pub mod utils;
 pub use utils::*;
 pub mod dev;
 pub use dev::*;
+pub mod state;
+pub use state::*;
 
 use std::num::Wrapping;
 use std::{env, fs, io};
@@ -38,8 +40,9 @@ fn main() -> Result<(), String> {
     println!("{}", header);
     */
 
-    let mut mmu = MMU::new(MBC1::new(vec![0; 1 << 21]));
-    let mut gpu = GPU::new();
+    let mut state = State::new(MMU::new(MBC1::new(vec![0; 1 << 21])), GPU::new());
+    let mmu = &mut state.mmu;
+    let gpu = &mut state.gpu;
 
     for (i, byte) in BLACK_TILE.iter().enumerate() { mmu.write(32 + 0x9000 + i as u16, *byte); }
     for (i, byte) in A_CHAR.iter().enumerate() { mmu.write(16 + 0x9000 + i as u16, *byte); }
@@ -60,15 +63,15 @@ fn main() -> Result<(), String> {
     mmu.write(WY, (SCREEN_HEIGHT as f64 * 0.25) as u8);
     mmu.write(BGP, 0b11100100);
 
-    gpu.reread_regs(&mut mmu);
+    gpu.reread_regs(mmu);
     gpu.LCD_DISPLAY_ENABLE = true;  
     gpu.WINDOW_ENABLED = true;
     gpu.TILE_ADDRESSING = false;
     gpu.BG_TILE_MAP = true;
     gpu.WINDOW_TILE_MAP = false;
-    gpu.flush_regs(&mut mmu);
+    gpu.flush_regs(mmu);
 
-    for _ in 0..FRAME_CYCLES { gpu.step(&mut mmu); }
+    for _ in 0..FRAME_CYCLES { gpu.step(mmu); }
 
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
@@ -81,52 +84,54 @@ fn main() -> Result<(), String> {
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
     
     'emulating: loop {
-        for _ in 0..FRAME_CYCLES { gpu.step(&mut mmu); }
+        for _ in 0..FRAME_CYCLES { gpu.step(mmu); }
 
         for event in events.poll_iter() {
             if let Event::Quit {..}  |  Event::KeyDown { keycode: Some(Keycode::Escape), .. } = event {
                  break 'emulating; 
             }
+
+            let update = 4;
             match event {
                 // SCX/SCY controls
                 Event::KeyDown { keycode: Some(Keycode::A), .. } => { 
-                    let scx = Wrapping(mmu.read(SCX)) - Wrapping(1);
+                    let scx = Wrapping(mmu.read(SCX)) - Wrapping(update);
                     mmu.write(ioregs::SCX, scx.0);
                 },
                 Event::KeyDown { keycode: Some(Keycode::D), .. } => { 
-                    let scx = Wrapping(mmu.read(SCX)) + Wrapping(1);
+                    let scx = Wrapping(mmu.read(SCX)) + Wrapping(update);
                     mmu.write(ioregs::SCX, scx.0);
                 },
                 Event::KeyDown { keycode: Some(Keycode::W), .. } => { 
-                    let scy = Wrapping(mmu.read(SCY)) - Wrapping(1);
+                    let scy = Wrapping(mmu.read(SCY)) - Wrapping(update);
                     mmu.write(ioregs::SCY, scy.0);
                 },
                 Event::KeyDown { keycode: Some(Keycode::S), .. } => { 
-                    let scy = Wrapping(mmu.read(SCY)) + Wrapping(1);
+                    let scy = Wrapping(mmu.read(SCY)) + Wrapping(update);
                     mmu.write(ioregs::SCY, scy.0);
                 },
 
                 // Window ON/OFF switch
                 Event::KeyDown { keycode: Some(Keycode::F), .. } => {
                     gpu.WINDOW_ENABLED ^= true;
-                    gpu.flush_regs(&mut mmu);
+                    gpu.flush_regs(mmu);
                 },
 
                 // Window WX/WY controls
                 Event::KeyDown { keycode: Some(Keycode::Left), .. } => { 
-                    let wx = Wrapping(mmu.read(WX)) - Wrapping(1);
+                    let wx = Wrapping(mmu.read(WX)) - Wrapping(update);
                     mmu.write(ioregs::WX, wx.0);
                 },
                 Event::KeyDown { keycode: Some(Keycode::Right), .. } => { 
-                    let wx = Wrapping(mmu.read(WX)) + Wrapping(1);
+                    let wx = Wrapping(mmu.read(WX)) + Wrapping(update);
                     mmu.write(ioregs::WX, wx.0);
                 },
                 Event::KeyDown { keycode: Some(Keycode::Up), .. } => { 
-                    let wy = Wrapping(mmu.read(WY)) - Wrapping(1);
+                    let wy = Wrapping(mmu.read(WY)) - Wrapping(update);
                     mmu.write(ioregs::WY, wy.0);
                 },
                 Event::KeyDown { keycode: Some(Keycode::Down), .. } => { 
-                    let wy = Wrapping(mmu.read(WY)) + Wrapping(1);
+                    let wy = Wrapping(mmu.read(WY)) + Wrapping(update);
                     mmu.write(ioregs::WY, wy.0);
                 },
                 _ => {}

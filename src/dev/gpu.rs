@@ -54,9 +54,9 @@ impl Default for GPUMode {
 #[allow(non_snake_case)]
 pub struct GPU {
     ptr_x: u8,
-    ptr_y: u8,
+    pub ptr_y: u8,
     cycle: u64,
-    window_in_line: bool, // was window drawn in current line?
+    lyc_interrupted: bool, // was window drawn in current line?
     pub framebuff: Vec<Color>,
     
     // LCDC
@@ -105,7 +105,8 @@ pub struct GPU {
 impl GPU {
     pub fn new() -> Self {
         Self {
-            framebuff: vec![WHITE; SCREEN_WIDTH*SCREEN_HEIGHT], window_in_line: false,
+            framebuff: vec![WHITE; SCREEN_WIDTH*SCREEN_HEIGHT],
+            lyc_interrupted: false,
             ..Default::default()
         }
     }
@@ -138,10 +139,10 @@ impl GPU {
         self.MODE = GPUMode::OAM_SEARCH;
         self.ptr_y = 0;
         self.ptr_x = 0;
-        self.window_in_line = false;
+        self.lyc_interrupted = false;
 
         self.flush_regs(mmu);
-        if self.MODE_2_OAM_INTERRUPT_ENABLE || (self.COINCIDENCE_INTERRUPT_ENABLE && self.COINCIDENCE_FLAG) {
+        if self.MODE_2_OAM_INTERRUPT_ENABLE { // Moving to 0 line
             GPU::stat_int(mmu);
         }
     }
@@ -154,14 +155,12 @@ impl GPU {
         self.ptr_x = 0;
 
         self.flush_regs(mmu);
-        if self.COINCIDENCE_INTERRUPT_ENABLE && self.COINCIDENCE_FLAG {
-            GPU::stat_int(mmu);
-        }
     }
 
     // HBLANK START
     fn on_hblank_start<T: BankController>(&mut self, mmu: &mut MMU<T>) {
         self.MODE = GPUMode::HBLANK;
+
         self.flush_regs(mmu);
         if self.MODE_0_HBLANK_INTERRUPT_ENABLE {
             GPU::stat_int(mmu);
@@ -174,7 +173,7 @@ impl GPU {
         self.MODE = GPUMode::OAM_SEARCH;
         self.ptr_y += 1;
         self.ptr_x = 0;
-        self.window_in_line = false;
+        self.lyc_interrupted = false;
         
         self.flush_regs(mmu);
         if self.MODE_2_OAM_INTERRUPT_ENABLE {
@@ -185,11 +184,7 @@ impl GPU {
     // LCD TRANSFER START
     fn on_lcd_start<T: BankController>(&mut self, mmu: &mut MMU<T>){
         self.MODE = GPUMode::LCD_TRANSFER;
-
         self.flush_regs(mmu);
-        if self.COINCIDENCE_INTERRUPT_ENABLE && self.COINCIDENCE_FLAG {
-            GPU::stat_int(mmu);
-        }
     }
 
     // MID LCD TRANSFER
@@ -200,7 +195,6 @@ impl GPU {
         let is_window = self.WINDOW_ENABLED && self.ptr_x >= wx && self.ptr_y >= wy && wx >= 7 && wx <= 166 && wy <= 143;
 
         let (x, y, tile_map_base) = if is_window {
-            self.window_in_line = true;
             (self.ptr_x as u16 - 7, self.ptr_y as u16, if self.WINDOW_TILE_MAP { TILE_MAP_2 } else { TILE_MAP_1 })
         } else {
             let scx = mmu.read(ioregs::SCX);
@@ -244,6 +238,12 @@ impl GPU {
 
         if !self.LCD_DISPLAY_ENABLE {
             return
+        }
+
+        // Coincidence interrupt should be called before first OAM_SEARCH cycle.
+        if self.COINCIDENCE_FLAG && self.COINCIDENCE_INTERRUPT_ENABLE && self.MODE == GPUMode::OAM_SEARCH && !self.lyc_interrupted {
+            GPU::stat_int(mmu);
+            self.lyc_interrupted = true;
         }
 
         // Where are we on current scanline?
@@ -296,7 +296,7 @@ impl GPU {
     pub fn flush_regs<T: BankController>(&mut self, mmu: &mut MMU<T>) {
         mmu.write(ioregs::LY, self.ptr_y);
         self.COINCIDENCE_FLAG = self.ptr_y == mmu.read(ioregs::LYC);
-        //println!("LY: {}, LYC: {}, FLG: {}", self.ptr_y, mmu.read(ioregs::LYC), self.COINCIDENCE_FLAG);
+
         mmu.write(ioregs::LCDC, self.lcdc_new());
         mmu.write(ioregs::STAT, self.stat_new());
         mmu.write(ioregs::BGP, self.bgp_new());
