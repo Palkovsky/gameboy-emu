@@ -45,8 +45,8 @@ mod gputest {
     fn vblank_interrupts() {
         let (mut mmu, mut gpu) = mock();
 
-        // Run 30 frames
-        for _ in 0..30 { 
+        // 10 frames
+        for _ in 0..10 { 
             for _ in 0..gpu::SCANLINE_CYCLES*gpu::SCREEN_HEIGHT as u64 {
                 assert!(mmu.read(ioregs::IF) & 1 == 0);
                 gpu.step(&mut mmu);
@@ -69,8 +69,8 @@ mod gputest {
     fn ly_updates() {
         let (mut mmu, mut gpu) = mock();
 
-        // 60 frames
-        for _ in 0..60 {
+        // 10 frames
+        for _ in 0..10 {
             for ly in 0..(gpu::SCREEN_HEIGHT + gpu::VBLANK_HEIGHT) {
                 assert_eq!(mmu.read(ioregs::LY), ly as u8);
                 for _ in 0..gpu::SCANLINE_CYCLES { gpu.step(&mut mmu); }
@@ -82,8 +82,8 @@ mod gputest {
     fn mode_changes() {
         let (mut mmu, mut gpu) = mock();
 
-        // Run 30 frames
-        for _ in 0..30 {
+        // 10 frames
+        for _ in 0..10 {
 
             // Check if OAM/LCD/HBLANK states take proper number of cycles
             for _ in 0..gpu::SCREEN_HEIGHT {
@@ -208,12 +208,10 @@ mod gputest {
         assert_eq!(gpu.OBP0_COLOR_3_SHADE, 0);
         assert_eq!(gpu.OBP0_COLOR_2_SHADE, 0);
         assert_eq!(gpu.OBP0_COLOR_1_SHADE, 0);
-        assert_eq!(gpu.OBP0_COLOR_0_SHADE, 0);
 
         assert_eq!(gpu.OBP1_COLOR_3_SHADE, 0);
         assert_eq!(gpu.OBP1_COLOR_2_SHADE, 0);
         assert_eq!(gpu.OBP1_COLOR_1_SHADE, 0);
-        assert_eq!(gpu.OBP1_COLOR_0_SHADE, 0);
 
         mmu.write(ioregs::BGP, 0b10111101);
         mmu.write(ioregs::OBP_0, 0b00011011);
@@ -232,19 +230,17 @@ mod gputest {
         assert_eq!(gpu.OBP0_COLOR_3_SHADE, 0);
         assert_eq!(gpu.OBP0_COLOR_2_SHADE, 1);
         assert_eq!(gpu.OBP0_COLOR_1_SHADE, 2);
-        assert_eq!(gpu.OBP0_COLOR_0_SHADE, 3);
         assert_eq!(gpu.obp0_color(3), gpu::WHITE);
         assert_eq!(gpu.obp0_color(2), gpu::LIGHT_GRAY);
         assert_eq!(gpu.obp0_color(1), gpu::DARK_GRAY);
-        assert_eq!(gpu.obp0_color(0), gpu::BLACK);
+        assert_eq!(gpu.obp0_color(0), gpu::TRANSPARENT);
 
         assert_eq!(gpu.OBP1_COLOR_3_SHADE, 3);
         assert_eq!(gpu.OBP1_COLOR_2_SHADE, 0);
         assert_eq!(gpu.OBP1_COLOR_1_SHADE, 2);
-        assert_eq!(gpu.OBP1_COLOR_0_SHADE, 1);
         assert_eq!(gpu.obp1_color(3), gpu::BLACK);
         assert_eq!(gpu.obp1_color(2), gpu::WHITE);
         assert_eq!(gpu.obp1_color(1), gpu::DARK_GRAY);
-        assert_eq!(gpu.obp1_color(0), gpu::LIGHT_GRAY);
+        assert_eq!(gpu.obp1_color(0), gpu::TRANSPARENT);
     }
 }

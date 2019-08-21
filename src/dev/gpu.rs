@@ -30,6 +30,7 @@ pub const WHITE: Color = (255, 255, 255);
 pub const LIGHT_GRAY: Color = (110, 123, 138);
 pub const DARK_GRAY: Color = (91, 97, 105);
 pub const BLACK: Color = (0, 0, 0);
+pub const TRANSPARENT: Color = (0, 21, 37); // It will be recognized by renderer as transparent
 
 fn get_color(num: u8) -> Color {
     match num {
@@ -54,7 +55,7 @@ impl Default for GPUMode {
 #[allow(non_snake_case)]
 pub struct GPU {
     ptr_x: u8,
-    pub ptr_y: u8,
+    ptr_y: u8,
     cycle: u64,
     lyc_interrupted: bool, // was window drawn in current line?
     pub framebuff: Vec<Color>,
@@ -94,12 +95,10 @@ pub struct GPU {
     pub OBP0_COLOR_3_SHADE: u8,
     pub OBP0_COLOR_2_SHADE: u8,
     pub OBP0_COLOR_1_SHADE: u8,
-    pub OBP0_COLOR_0_SHADE: u8,
     // OBP1
     pub OBP1_COLOR_3_SHADE: u8,
     pub OBP1_COLOR_2_SHADE: u8,
     pub OBP1_COLOR_1_SHADE: u8,
-    pub OBP1_COLOR_0_SHADE: u8,
 }
 
 impl GPU {
@@ -368,7 +367,6 @@ impl GPU {
     }
 
     fn obp0(&mut self, byte: u8) {
-        self.OBP0_COLOR_0_SHADE = (byte >> 0) & 0x03;
         self.OBP0_COLOR_1_SHADE = (byte >> 2) & 0x03;
         self.OBP0_COLOR_2_SHADE = (byte >> 4) & 0x03;
         self.OBP0_COLOR_3_SHADE = (byte >> 6) & 0x03;
@@ -376,7 +374,6 @@ impl GPU {
 
     fn obp0_new(&self) -> u8 {
         let mut obp0 = 0u8;
-        obp0 |= (self.OBP0_COLOR_0_SHADE & 0x03) << 0;
         obp0 |= (self.OBP0_COLOR_1_SHADE & 0x03) << 2;
         obp0 |= (self.OBP0_COLOR_2_SHADE & 0x03) << 4;
         obp0 |= (self.OBP0_COLOR_3_SHADE & 0x03) << 6;
@@ -384,7 +381,6 @@ impl GPU {
     }
 
     fn obp1(&mut self, byte: u8) {
-        self.OBP1_COLOR_0_SHADE = (byte >> 0) & 0x03;
         self.OBP1_COLOR_1_SHADE = (byte >> 2) & 0x03;
         self.OBP1_COLOR_2_SHADE = (byte >> 4) & 0x03;
         self.OBP1_COLOR_3_SHADE = (byte >> 6) & 0x03;
@@ -392,7 +388,6 @@ impl GPU {
 
     fn obp1_new(&self) -> u8 {
         let mut obp1 = 0u8;
-        obp1 |= (self.OBP1_COLOR_0_SHADE & 0x03) << 0;
         obp1 |= (self.OBP1_COLOR_1_SHADE & 0x03) << 2;
         obp1 |= (self.OBP1_COLOR_2_SHADE & 0x03) << 4;
         obp1 |= (self.OBP1_COLOR_3_SHADE & 0x03) << 6;
@@ -407,10 +402,16 @@ impl GPU {
     }
 
     pub fn obp0_color(&self, color: u8) -> Color {
-        get_color(match color { 0 => self.OBP0_COLOR_0_SHADE, 1 => self.OBP0_COLOR_1_SHADE, 2 => self.OBP0_COLOR_2_SHADE, 3 => self.OBP0_COLOR_3_SHADE, _ => 0x80 })
+        if color == 0 {
+            return TRANSPARENT 
+        }
+        get_color(match color { 1 => self.OBP0_COLOR_1_SHADE, 2 => self.OBP0_COLOR_2_SHADE, 3 => self.OBP0_COLOR_3_SHADE, _ => 0x80 })
     }
 
     pub fn obp1_color(&self, color: u8) -> Color {
-        get_color(match color { 0 => self.OBP1_COLOR_0_SHADE, 1 => self.OBP1_COLOR_1_SHADE, 2 => self.OBP1_COLOR_2_SHADE, 3 => self.OBP1_COLOR_3_SHADE, _ => 0x40 })
+         if color == 0 { 
+            return TRANSPARENT 
+        }
+        get_color(match color { 1 => self.OBP1_COLOR_1_SHADE, 2 => self.OBP1_COLOR_2_SHADE, 3 => self.OBP1_COLOR_3_SHADE, _ => 0x40 })
     }
 }

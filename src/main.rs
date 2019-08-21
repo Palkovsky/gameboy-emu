@@ -7,6 +7,7 @@ pub use dev::*;
 pub mod state;
 pub use state::*;
 
+use std::time::{Instant};
 use std::num::Wrapping;
 use std::{env, fs, io};
 use io::prelude::*;
@@ -84,14 +85,16 @@ fn main() -> Result<(), String> {
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
     
     'emulating: loop {
+        let now = Instant::now();
         for _ in 0..FRAME_CYCLES { gpu.step(mmu); }
+        println!("{}ms/frame", now.elapsed().as_millis());
 
         for event in events.poll_iter() {
             if let Event::Quit {..}  |  Event::KeyDown { keycode: Some(Keycode::Escape), .. } = event {
                  break 'emulating; 
             }
 
-            let update = 4;
+            let update = 1;
             match event {
                 // SCX/SCY controls
                 Event::KeyDown { keycode: Some(Keycode::A), .. } => { 
@@ -155,7 +158,7 @@ fn main() -> Result<(), String> {
                 canvas.draw_rect(rect)?;
             }
         }
-
+        
         canvas.present();
     } 
 
