@@ -10,7 +10,17 @@ pub struct State<T: BankController> {
 }
 
 impl <T: BankController>State<T> {
-    pub fn new(mmu: MMU<T>, gpu: GPU) -> Self {
+    pub fn new(mapper: T) -> Self {
+        let mut mmu = MMU::new(mapper);
+        let gpu = GPU::new();
+        
+        let lyc = mmu.read(ioregs::LYC);
+        let ly = mmu.read(ioregs::LY);
+
+        GPU::_LCD_DISPLAY_ENABLE(&mut mmu, true);
+        GPU::_MODE(&mut mmu, GPUMode::OAM_SEARCH);
+        GPU::_COINCIDENCE_FLAG(&mut mmu, lyc == ly);
+        
         Self { mmu: mmu, gpu: gpu }
     }
 
@@ -23,12 +33,12 @@ impl <T: BankController>State<T> {
         0xFF
     }
 
-    fn is_addr_allowed(&self, addr: Addr) -> bool {
+    fn is_addr_allowed(&mut self, addr: Addr) -> bool {
         let is_vram = addr >= VRAM_ADDR && addr < VRAM_ADDR + VRAM_SIZE as Addr;
         let is_oam = addr >= OAM_ADDR && addr < OAM_ADDR + OAM_SIZE as Addr;
 
-        if self.gpu.MODE == GPUMode::LCD_TRANSFER && is_vram { return false }
-        if self.gpu.MODE == GPUMode::OAM_SEARCH && (is_oam || is_vram) { return false }
+        if GPU::MODE(&mut self.mmu) == GPUMode::LCD_TRANSFER && is_vram { return false }
+        if GPU::MODE(&mut self.mmu) == GPUMode::OAM_SEARCH && (is_oam || is_vram) { return false }
         true
     }
 }

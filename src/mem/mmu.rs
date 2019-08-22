@@ -30,6 +30,23 @@ impl <T: BankController>MMU<T> {
         }   
     }
 
+    /* Allows setting bit in memory byte. n of 0 means least signifcant bit */
+    pub fn set_bit(&mut self, addr: Addr, n: u8, flg: bool) {
+        let byte = self.read(addr);
+        
+        let mask = 1u8 << n;
+        let num = if flg { 1 } else { 0 };
+        let updated = (byte & !mask) | ((num << n) & mask);
+
+        self.write(addr, updated);
+    }
+
+    /* Allows reading nth bit */
+    pub fn read_bit(&mut self, addr: Addr, n: u8) -> bool {
+        let byte = self.read(addr);
+        byte & (1 << n) != 0
+    }
+
     /*
      * WRITEs
      */

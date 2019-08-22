@@ -41,7 +41,7 @@ fn main() -> Result<(), String> {
     println!("{}", header);
     */
 
-    let mut state = State::new(MMU::new(MBC1::new(vec![0; 1 << 21])), GPU::new());
+    let mut state = State::new(MBC1::new(vec![0; 1 << 21]));
     let mmu = &mut state.mmu;
     let gpu = &mut state.gpu;
 
@@ -64,13 +64,11 @@ fn main() -> Result<(), String> {
     mmu.write(WY, (SCREEN_HEIGHT as f64 * 0.25) as u8);
     mmu.write(BGP, 0b11100100);
 
-    gpu.reread_regs(mmu);
-    gpu.LCD_DISPLAY_ENABLE = true;  
-    gpu.WINDOW_ENABLED = true;
-    gpu.TILE_ADDRESSING = false;
-    gpu.BG_TILE_MAP = true;
-    gpu.WINDOW_TILE_MAP = false;
-    gpu.flush_regs(mmu);
+    GPU::_LCD_DISPLAY_ENABLE(mmu, true);
+    GPU::_WINDOW_ENABLED(mmu, true);
+    GPU::_TILE_ADDRESSING(mmu, false);
+    GPU::_BG_TILE_MAP(mmu, true);
+    GPU::_WINDOW_TILE_MAP(mmu, false);
 
     for _ in 0..FRAME_CYCLES { gpu.step(mmu); }
 
@@ -116,8 +114,8 @@ fn main() -> Result<(), String> {
 
                 // Window ON/OFF switch
                 Event::KeyDown { keycode: Some(Keycode::F), .. } => {
-                    gpu.WINDOW_ENABLED ^= true;
-                    gpu.flush_regs(mmu);
+                    let enabled = GPU::WINDOW_ENABLED(mmu);
+                    GPU::_WINDOW_ENABLED(mmu, enabled ^ true);
                 },
 
                 // Window WX/WY controls
