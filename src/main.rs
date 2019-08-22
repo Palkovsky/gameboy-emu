@@ -64,14 +64,14 @@ fn main() -> Result<(), String> {
     mmu.write(WX, SCREEN_WIDTH as u8/2);
     mmu.write(WY, (SCREEN_HEIGHT as f64 * 0.25) as u8);
     mmu.write(BGP, 0b11100100);
+    mmu.write(LYC, gpu::SCREEN_HEIGHT as u8 - 20);
 
     GPU::_LCD_DISPLAY_ENABLE(mmu, true);
     GPU::_WINDOW_ENABLED(mmu, true);
     GPU::_TILE_ADDRESSING(mmu, false);
     GPU::_BG_TILE_MAP(mmu, true);
     GPU::_WINDOW_TILE_MAP(mmu, false);
-
-    for _ in 0..FRAME_CYCLES { gpu.step(mmu); }
+    GPU::_COINCIDENCE_INTERRUPT_ENABLE(mmu, true);
 
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
@@ -85,7 +85,28 @@ fn main() -> Result<(), String> {
     
     'emulating: loop {
         let now = Instant::now();
-        for _ in 0..FRAME_STEPS { gpu.step(mmu); }
+        
+        for j in 0..gpu::SCREEN_HEIGHT { 
+            gpu.step(mmu); // OAM 
+            assert_eq!(GPU::MODE(mmu), GPUMode::LCD_TRANSFER);
+
+            let iflg = mmu.read(IF);
+            if iflg & 2 != 0 {
+                GPU::_WINDOW_ENABLED(mmu, false);
+                mmu.write(IF, iflg & 0xFD);
+                // println!("Line {} disabled. WY: {}", GPU::LY(mmu), GPU::WY(mmu));
+            }
+
+            gpu.step(mmu); // LCD
+            assert_eq!(GPU::MODE(mmu), GPUMode::HBLANK);
+
+            gpu.step(mmu); // HBLANK
+            assert_eq!(GPU::MODE(mmu), if j == SCREEN_HEIGHT - 1 {GPUMode::VBLANK} else {GPUMode::OAM_SEARCH});
+        }
+        gpu.step(mmu); // VBLANK
+        assert_eq!(GPU::MODE(mmu), GPUMode::OAM_SEARCH);
+
+        GPU::_WINDOW_ENABLED(mmu, true);
 
         println!("{}ms/frame | Rs: {} | Ws: {}", now.elapsed().as_millis(), mmu.reads, mmu.writes);
         mmu.reads = 0;
@@ -96,7 +117,7 @@ fn main() -> Result<(), String> {
                  break 'emulating; 
             }
 
-            let update = 1;
+            let update = 4;
             match event {
                 // SCX/SCY controls
                 Event::KeyDown { keycode: Some(Keycode::A), .. } => { 

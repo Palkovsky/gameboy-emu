@@ -11,12 +11,12 @@ pub const VBLANK_HEIGHT: usize = 10;
  * MODE 2 - OAM SEARCH
  * MODE 3 - LCD TRANSFER
  */
-pub const OAM_SEARCH_CYCLES: u64 = 20;
-pub const LCD_TRANSFER_CYCLES: u64 = 43;
-pub const HBLANK_CYCLES: u64 = 51;
-pub const SCANLINE_CYCLES: u64 = OAM_SEARCH_CYCLES + LCD_TRANSFER_CYCLES + HBLANK_CYCLES;
-pub const VBLANK_CYCLES: u64 = SCANLINE_CYCLES * VBLANK_HEIGHT as u64;
-pub const FRAME_CYCLES: u64 = SCANLINE_CYCLES * (SCREEN_HEIGHT + VBLANK_HEIGHT) as u64;
+const OAM_SEARCH_CYCLES: u64 = 20;
+const LCD_TRANSFER_CYCLES: u64 = 43;
+const HBLANK_CYCLES: u64 = 51;
+const SCANLINE_CYCLES: u64 = OAM_SEARCH_CYCLES + LCD_TRANSFER_CYCLES + HBLANK_CYCLES;
+const VBLANK_CYCLES: u64 = SCANLINE_CYCLES * VBLANK_HEIGHT as u64;
+const FRAME_CYCLES: u64 = SCANLINE_CYCLES * (SCREEN_HEIGHT + VBLANK_HEIGHT) as u64;
 
 pub const SCANLINE_STEPS: u64 = 3; // OAM -> LCD -> HBLANK -> (OAM -> LCD -> HBLANK ->)
 pub const FRAME_STEPS: u64 = SCREEN_HEIGHT as u64*SCANLINE_STEPS + 1;
@@ -120,31 +120,37 @@ impl GPU {
         let mut lx = 0usize;
         let ly = self.ly as usize;
         
+        let scx = GPU::SCX(mmu) as usize;
+        let scy = GPU::SCY(mmu) as usize;
+
         let wx = GPU::WX(mmu) as usize;
         let wy = GPU::WY(mmu) as usize;
-        let win_enabled = GPU::WINDOW_ENABLED(mmu);
+        let win_enabled = GPU::WINDOW_ENABLED(mmu) &&
+                          ly >= wy && 
+                          wx >= 7 &&
+                          wx <= SCREEN_WIDTH + 7 &&
+                          wy <= SCREEN_HEIGHT;
+        let in_window = |lx: usize| win_enabled && lx >= wx - 7;
 
-        let scx = GPU::SCX(mmu);
-        let scy = GPU::SCY(mmu);
-
-        let window_tile_map = if GPU::WINDOW_TILE_MAP(mmu) { TILE_MAP_2 } else { TILE_MAP_1 } - VRAM_ADDR;
-        let bg_tile_map = if GPU::BG_TILE_MAP(mmu) { TILE_MAP_2 } else { TILE_MAP_1 } - VRAM_ADDR;
         let tile_addressing = GPU::TILE_ADDRESSING(mmu);
+        let window_tile_map = (if GPU::WINDOW_TILE_MAP(mmu) 
+            { TILE_MAP_2 } else { TILE_MAP_1 } - VRAM_ADDR) as usize;
+        let bg_tile_map = (if GPU::BG_TILE_MAP(mmu) 
+            { TILE_MAP_2 } else { TILE_MAP_1 } - VRAM_ADDR) as usize;
 
         while lx < SCREEN_WIDTH {
-            let is_window = win_enabled && lx >= wx && ly >= wy && wx >= 7 && wx <= SCREEN_WIDTH + 7 && wy < SCREEN_HEIGHT;
-            
-            let (x, y, tile_map) = if is_window {
-                (lx as u16 - 7, ly as u16, window_tile_map) 
-            } else {
-                ((scx as u16 + lx as u16) % 256, (scy as u16 + ly as u16) % 256, bg_tile_map) 
+            let window = in_window(lx);
+
+            // Coordinates of tile to fetch.
+            let (x, y, tile_map) = match window {
+                true => (lx + 7, ly, window_tile_map), // Not sure if it should be 'lx+7' or jsut 'lx'
+                false => ((scx + lx) % 256, (scy + ly) % 256, bg_tile_map),                
             };
 
             let x_tile = x/8;
             let y_tile = y/8;
             let off = (32*y_tile + x_tile) % 1024;
-            // Read tile number from tile map
-            let tile_no = mmu.vram[(tile_map + off) as usize] as u16;
+            let tile_no = mmu.vram[tile_map + off] as u16;
 
             // By using tile number, fetch tile data from VRAM
             let tile_addr = match (tile_addressing, tile_no) {
@@ -163,18 +169,20 @@ impl GPU {
             let tile = &mmu.vram[start..end];
 
             // Which row we want to render?
-            let byte_y = (y - y_tile*8) as usize;
-            let (b1, b2) = (tile[2*byte_y], tile[2*byte_y+1]);
+            let tile_row = (y - y_tile*8) as usize;
+            let (b1, b2) = (tile[2*tile_row], tile[2*tile_row+1]);
 
             // Which col we want to render?
-            let byte_x = (x - x_tile*8) as u16;
+            let tile_col = (x - x_tile*8) as u16;
 
-            for x in byte_x..8 {    
+            //println!("LX {}, X {}", idx, lx, x);
+
+            for off in tile_col..8 {    
                 if lx >= SCREEN_WIDTH { break; }
                 // When drawing background, but entered window area.
-                if !is_window && win_enabled && lx >= wx && ly >= wy { break; }
+                if !window && in_window(lx) { break; }
 
-                let mask = 0x80 >> x;
+                let mask = 0x80 >> off;
                 let color = match (b2 & mask != 0, b1 & mask != 0) {
                     (true, true) => 3,
                     (true, false) => 2,
