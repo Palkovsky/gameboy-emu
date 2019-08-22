@@ -15,6 +15,9 @@ pub struct MMU<T: BankController> {
     pub ram: Vec<Byte>,
     pub hram: Vec<Byte>, 
     pub ioregs: IORegs,
+    /* Statistics */
+    pub writes: u64,
+    pub reads: u64,
 }
 
 impl <T: BankController>MMU<T> {
@@ -27,6 +30,7 @@ impl <T: BankController>MMU<T> {
             ram: vec![0; RAM_BANK_SIZE],
             hram: vec![0; HRAM_SIZE],
             ioregs: IORegs::new(),
+            writes: 0, reads: 0,
         }   
     }
 
@@ -47,49 +51,40 @@ impl <T: BankController>MMU<T> {
         byte & (1 << n) != 0
     }
 
-    /*
-     * WRITEs
-     */
+    /* WRITES */
     pub fn write(&mut self, addr: Addr, byte: Byte) {
-        // BOOTSTRAP ROM | BOOT Sequence
-        if addr < BOOSTRAP_SIZE as u16 && self.read(ioregs::BOOT_END) == 0 
-            { panic!("Write to 0x{:x} bootstrap ROM.", addr) }
+        self.writes += 1;
 
-        // BASE ROM | 0x0000-0x3FFF
-        else if addr < ROM_SWITCHABLE_ADDR 
-            { self.write_base_rom(addr, addr as usize, byte) } 
-
-        // SWITCHABLE ROM | 0x4000-0x7FFF
-        else if addr < VRAM_ADDR 
-            { self.write_switchable_rom(addr, (addr - ROM_SWITCHABLE_ADDR) as usize, byte) }
-
-         // VRAM | 0x8000-0x9FFF
-        else if addr < RAM_SWITCHABLE_ADDR 
-            { self.write_vram(addr, (addr - VRAM_ADDR) as usize, byte) } 
-
-         // SWITCHABLE RAM | 0xA000-0xBFFF
-        else if addr < RAM_BASE_ADDR 
-            { self.write_switchable_ram(addr, (addr - RAM_SWITCHABLE_ADDR) as usize, byte) }
-
-        // BASE RAM | 0xC000 - 0xDFFF
-        else if addr < RAM_ECHO_ADDR 
-            { self.write_base_ram(addr, (addr - RAM_BASE_ADDR) as usize, byte) }
-
-        // ECHO OF BASE RAM | 0xE000 - 0xFE00
-        else if addr < OAM_ADDR 
-            { self.write_base_ram(addr, (addr - RAM_ECHO_ADDR) as usize, byte) }
-
-        // SPRITE ATTRIBUTE TABLE | 0xFE00-0xFEA0 + 0xFEA0-0xFF00(unsued anyway)
-        else if addr < IO_REGS_ADDR
-            { self.write_oam(addr, (addr - OAM_ADDR) as usize, byte) }
+        if addr < BOOSTRAP_SIZE as u16 && self.read(ioregs::BOOT_END) == 0 {
+            panic!("Attempt to write to bootstrap ROM at 0x{:X}", addr)
+        }
         
-        // IO Registers | (0xFF00-0xFF7F + 0xFFFF)
-        else if addr < STACK_ADDR || addr == 0xFFFF 
-            { self.write_io_reg(addr, (addr - IO_REGS_ADDR) as usize, byte) }
-        
-        // High RAM - 0xFF80-0xFFFE(hram goes here)
-        else 
-            { self.write_to_stack(addr, (addr - STACK_ADDR) as usize, byte) }
+        // The thing below is quite retarded, but I was hoping for some magic optimalizations.
+        let chunked = ((addr >> 12) & 0xF, (addr >> 8) & 0xF, (addr >> 4) & 0xF, addr & 0xF);
+        match chunked {
+            (0, _, _, _) | (1, _, _, _) | (2, _, _, _) | (3, _, _, _) => 
+                self.write_base_rom(addr, addr as usize, byte),
+            (4, _, _, _) | (5, _, _, _) | (6, _, _, _) | (7, _, _, _) => 
+                self.write_switchable_rom(addr, (addr - ROM_SWITCHABLE_ADDR) as usize, byte),
+            (8, _, _, _) | (9, _, _, _) => 
+                self.write_vram(addr, (addr - VRAM_ADDR) as usize, byte),
+            (10, _, _, _) | (11, _, _, _) => 
+                self.write_switchable_ram(addr, (addr - RAM_SWITCHABLE_ADDR) as usize, byte),
+            (12, _, _, _) | (13, _, _, _) => 
+                self.write_base_ram(addr, (addr - RAM_BASE_ADDR) as usize, byte),
+            (14, _, _, _) |            
+            (15, 0, _, _) | (15, 1, _, _) | (15, 2, _, _) | (15, 3, _, _)  | (15, 4, _, _) | (15, 5, _, _) | (15, 6, _, _) |
+            (15, 7, _, _) | (15, 8, _, _) | (15, 9, _, _) | (15, 10, _, _) | (15, 11, _, _) | (15, 12, _, _) | (15, 13, _, _)  =>
+                self.write_base_ram(addr, (addr - RAM_ECHO_ADDR) as usize, byte),
+            (15, 14, 0, _) | (15, 14, 1, _) | (15, 14, 2, _) | (15, 14, 3, _) | (15, 14, 4, _) | (15, 14, 5, _) | (15, 14, 6, _) |
+            (15, 14, 7, _) | (15, 14, 8, _) | (15, 14, 9, _) => 
+                self.write_oam(addr, (addr - OAM_ADDR) as usize, byte),
+            (15, 15, 0, _) | (15, 15, 1, _) | (15, 15, 2, _) | (15, 15, 3, _) | (15, 15, 4, _) | (15, 15, 5, _) | (15, 15, 6, _) |
+            (15, 15, 7, _) | (15, 15, 15, 15) =>
+                self.write_io_reg(addr, (addr - IO_REGS_ADDR) as usize, byte),
+            (15, 15, _, _) => self.write_hram(addr, (addr - HRAM_ADDR) as usize, byte),
+            _ => panic!("Unmapped address 0x{:x}", addr),
+        };
     }
 
     fn write_base_rom(&mut self, addr: Addr, _: usize, value: Byte) {
@@ -129,53 +124,44 @@ impl <T: BankController>MMU<T> {
         self.ioregs.slice()[offset] = value;
     }
 
-    fn write_to_stack(&mut self, _: Addr, offset: usize, value: Byte) {
+    fn write_hram(&mut self, _: Addr, offset: usize, value: Byte) {
         self.hram[offset] = value;
     }
 
-    /*
-     * READs
-     */
+    /* READS */
     pub fn read(&mut self, addr: Addr) -> Byte {
-        // BOOTSTRAP ROM | BOOT Sequence
-        if addr < BOOSTRAP_SIZE as u16 && self.read(ioregs::BOOT_END) == 0
-            { self.bootstrap[addr as usize] }
-        
-        // BASE ROM | 0x0000-0x3FFF
-        else if addr < ROM_SWITCHABLE_ADDR 
-            { self.read_base_rom(addr, addr as usize) } 
+        self.reads += 1;
 
-        // SWITCHABLE ROM | 0x4000-0x7FFF
-        else if addr < VRAM_ADDR 
-            { self.read_switchable_rom(addr, (addr - ROM_SWITCHABLE_ADDR) as usize) }
+        if addr < BOOSTRAP_SIZE as u16 && self.read(ioregs::BOOT_END) == 0 {
+            return self.bootstrap[addr as usize]
+        }
 
-         // VRAM | 0x8000-0x9FFF
-        else if addr < RAM_SWITCHABLE_ADDR 
-            { self.read_vram(addr, (addr - VRAM_ADDR) as usize) } 
-
-         // SWITCHABLE RAM | 0xA000-0xBFFF
-        else if addr < RAM_BASE_ADDR 
-            { self.read_switchable_ram(addr, (addr - RAM_SWITCHABLE_ADDR) as usize) }
-
-        // BASE RAM | 0xC000 - 0xDFFF
-        else if addr < RAM_ECHO_ADDR 
-            { self.read_base_ram(addr, (addr - RAM_BASE_ADDR) as usize) }
-
-        // ECHO OF BASE RAM | 0xE000 - 0xFE00
-        else if addr < OAM_ADDR 
-            { self.read_base_ram(addr, (addr - RAM_ECHO_ADDR) as usize) }
-
-        // SPRITE ATTRIBUTE TABLE | 0xFE00-0xFEA0 + 0xFEA0-0xFF00(unsued anyway)
-        else if addr < IO_REGS_ADDR
-            { self.read_oam(addr, (addr - OAM_ADDR) as usize) }
-        
-        // IO Registers | (0xFF00-0xFF7F + 0xFFFF) + 0xFF80 + 0xFFFE(High RAM - unused)
-        else if addr < STACK_ADDR || addr == 0xFFFF
-            { self.read_io_reg(addr, (addr - IO_REGS_ADDR) as usize) }
-
-        // High RAM - 0xFF80-0xFFFE( hram goes here)
-        else 
-            { self.read_stack(addr, (addr - STACK_ADDR) as usize) }
+        // The thing below is quite retarded, but I was hoping for some magic optimalizations.
+        let chunked = ((addr >> 12) & 0xF, (addr >> 8) & 0xF, (addr >> 4) & 0xF, addr & 0xF);
+        match chunked {
+            (0, _, _, _) | (1, _, _, _) | (2, _, _, _) | (3, _, _, _) => 
+                self.read_base_rom(addr, addr as usize),
+            (4, _, _, _) | (5, _, _, _) | (6, _, _, _) | (7, _, _, _) => 
+                self.read_switchable_rom(addr, (addr - ROM_SWITCHABLE_ADDR) as usize),
+            (8, _, _, _) | (9, _, _, _) => 
+                self.read_vram(addr, (addr - VRAM_ADDR) as usize),
+            (10, _, _, _) | (11, _, _, _) => 
+                self.read_switchable_ram(addr, (addr - RAM_SWITCHABLE_ADDR) as usize),
+            (12, _, _, _) | (13, _, _, _) => 
+                self.read_base_ram(addr, (addr - RAM_BASE_ADDR) as usize),
+            (14, _, _, _) |            
+            (15, 0, _, _) | (15, 1, _, _) | (15, 2, _, _) | (15, 3, _, _)  | (15, 4, _, _) | (15, 5, _, _) | (15, 6, _, _) |
+            (15, 7, _, _) | (15, 8, _, _) | (15, 9, _, _) | (15, 10, _, _) | (15, 11, _, _) | (15, 12, _, _) | (15, 13, _, _)  =>
+                self.read_base_ram(addr, (addr - RAM_ECHO_ADDR) as usize),
+            (15, 14, 0, _) | (15, 14, 1, _) | (15, 14, 2, _) | (15, 14, 3, _) | (15, 14, 4, _) | (15, 14, 5, _) | (15, 14, 6, _) |
+            (15, 14, 7, _) | (15, 14, 8, _) | (15, 14, 9, _)  => 
+                self.read_oam(addr, (addr - OAM_ADDR) as usize),
+            (15, 15, 0, _) | (15, 15, 1, _) | (15, 15, 2, _) | (15, 15, 3, _) | (15, 15, 4, _) | (15, 15, 5, _) | (15, 15, 6, _) |
+            (15, 15, 7, _) | (15, 15, 15, 15) =>
+                self.read_io_reg(addr, (addr - IO_REGS_ADDR) as usize),
+            (15, 15, _, _) => self.read_hram(addr, (addr - HRAM_ADDR) as usize),
+            _ => panic!("Unmapped address 0x{:x}", addr),
+        }
     }
 
     fn read_base_rom(&mut self, _: Addr, offset: usize) -> Byte {
@@ -206,7 +192,7 @@ impl <T: BankController>MMU<T> {
         self.ioregs.slice()[offset]
     }
 
-    fn read_stack(&mut self, _: Addr, offset: usize) -> Byte {
+    fn read_hram(&mut self, _: Addr, offset: usize) -> Byte {
         self.hram[offset]
     }
 }

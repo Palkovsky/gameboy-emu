@@ -86,7 +86,10 @@ fn main() -> Result<(), String> {
     'emulating: loop {
         let now = Instant::now();
         for _ in 0..FRAME_STEPS { gpu.step(mmu); }
-        println!("{}ms/frame", now.elapsed().as_millis());
+
+        println!("{}ms/frame | Rs: {} | Ws: {}", now.elapsed().as_millis(), mmu.reads, mmu.writes);
+        mmu.reads = 0;
+        mmu.writes = 0;
 
         for event in events.poll_iter() {
             if let Event::Quit {..}  |  Event::KeyDown { keycode: Some(Keycode::Escape), .. } = event {

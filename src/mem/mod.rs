@@ -21,7 +21,7 @@ pub const RAM_SWITCHABLE_ADDR: Addr = 0xA000;
 pub const RAM_BASE_ADDR: Addr = 0xC000;
 pub const RAM_ECHO_ADDR: Addr = 0xE000;
 pub const OAM_ADDR: Addr = 0xFE00;
-pub const STACK_ADDR: Addr = 0xFF80;
+pub const HRAM_ADDR: Addr = 0xFF80;
 pub const IO_REGS_ADDR: Addr = 0xFF00;
 
 pub const BOOSTRAP_SIZE: usize = 0x100;

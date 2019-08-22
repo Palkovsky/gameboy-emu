@@ -1,4 +1,5 @@
 use super::*;
+use super::super::{VRAM_ADDR};
 
 pub const SCREEN_WIDTH: usize = 160;
 pub const SCREEN_HEIGHT: usize = 144;
@@ -67,7 +68,6 @@ impl GPU {
         GPU::_LCD_DISPLAY_ENABLE(mmu, true);
         GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
         res.update(mmu);
-     
         res
     }
 
@@ -117,21 +117,22 @@ impl GPU {
 
     // Draws LY scanline.
     fn scanline<T: BankController>(&mut self, mmu: &mut MMU<T>) { 
-        let mut lx = 0u8;
-        let ly = self.ly;
+        let mut lx = 0usize;
+        let ly = self.ly as usize;
         
-        let wx = GPU::WX(mmu);
-        let wy = GPU::WY(mmu);
+        let wx = GPU::WX(mmu) as usize;
+        let wy = GPU::WY(mmu) as usize;
         let win_enabled = GPU::WINDOW_ENABLED(mmu);
 
         let scx = GPU::SCX(mmu);
         let scy = GPU::SCY(mmu);
 
-        let window_tile_map = if GPU::WINDOW_TILE_MAP(mmu) { TILE_MAP_2 } else { TILE_MAP_1 };
-        let bg_tile_map = if GPU::BG_TILE_MAP(mmu) { TILE_MAP_2 } else { TILE_MAP_1 };
+        let window_tile_map = if GPU::WINDOW_TILE_MAP(mmu) { TILE_MAP_2 } else { TILE_MAP_1 } - VRAM_ADDR;
+        let bg_tile_map = if GPU::BG_TILE_MAP(mmu) { TILE_MAP_2 } else { TILE_MAP_1 } - VRAM_ADDR;
+        let tile_addressing = GPU::TILE_ADDRESSING(mmu);
 
-        while lx < SCREEN_WIDTH as u8 {
-            let is_window = win_enabled && lx >= wx && ly >= wy && wx >= 7 && wx <= SCREEN_WIDTH as u8 + 7 && wy < SCREEN_HEIGHT as u8;
+        while lx < SCREEN_WIDTH {
+            let is_window = win_enabled && lx >= wx && ly >= wy && wx >= 7 && wx <= SCREEN_WIDTH + 7 && wy < SCREEN_HEIGHT;
             
             let (x, y, tile_map) = if is_window {
                 (lx as u16 - 7, ly as u16, window_tile_map) 
@@ -142,44 +143,46 @@ impl GPU {
             let x_tile = x/8;
             let y_tile = y/8;
             let off = (32*y_tile + x_tile) % 1024;
-            
-            // Reaad tile number from tile map
-            let tile_num = mmu.read(tile_map + off);
+            // Read tile number from tile map
+            let tile_no = mmu.vram[(tile_map + off) as usize] as u16;
 
             // By using tile number, fetch tile data from VRAM
-            let tile_addr = match (GPU::TILE_ADDRESSING(mmu), tile_num) {
+            let tile_addr = match (tile_addressing, tile_no) {
                 // 8000-8FFF unsigned addressing
-                (true, tile) => TILE_BLOCK_1 + TILE_SIZE*tile as u16,
+                (true, tile) => TILE_BLOCK_1 + TILE_SIZE*tile,
                 // 8800 signed addressing
-                (false, tile) if tile < 0x80 => TILE_BLOCK_2 + TILE_SIZE*tile as u16,
-                (false, tile) if tile >= 0x80 => TILE_BLOCK_2 - TILE_SIZE*(tile - 0x80) as u16,
+                (false, tile) if tile < 0x80 => TILE_BLOCK_2 + TILE_SIZE*tile,
+                (false, tile) if tile >= 0x80 => TILE_BLOCK_2 - TILE_SIZE*(tile - 0x80),
                 // Won't happen
                 (a, b) => { panic!("Invalid tile addressing pattern: ({}, {})", a, b) }
-            };
-            let tile: Vec<u8> = (0..TILE_SIZE).map(|i| mmu.read(tile_addr + i)).collect();
+            } - VRAM_ADDR as u16;
+
+            // Not using read/write MMU methods here, cuz 
+            let start = tile_addr as usize;
+            let end = start + TILE_SIZE as usize;
+            let tile = &mmu.vram[start..end];
 
             // Which row we want to render?
             let byte_y = (y - y_tile*8) as usize;
             let (b1, b2) = (tile[2*byte_y], tile[2*byte_y+1]);
 
             // Which col we want to render?
-            //let byte_x = if lx == 0 { scx as u16 % 8 } else { (x - x_tile*8) as u16 };
-            let byte_x = (x - x_tile*8) as u16 ;
+            let byte_x = (x - x_tile*8) as u16;
 
             for x in byte_x..8 {    
-                if lx >= SCREEN_WIDTH as u8 { break; }
-
+                if lx >= SCREEN_WIDTH { break; }
                 // When drawing background, but entered window area.
                 if !is_window && win_enabled && lx >= wx && ly >= wy { break; }
 
-                let color = match (b2 & (0x80 >> x) != 0, b1 & (0x80 >> x) != 0) {
+                let mask = 0x80 >> x;
+                let color = match (b2 & mask != 0, b1 & mask != 0) {
                     (true, true) => 3,
                     (true, false) => 2,
                     (false, true) => 1,
                     (false, false) => 0,
                 };
 
-                self.framebuff[ly as usize*SCREEN_WIDTH + lx as usize] = GPU::bg_color(mmu, color);
+                self.framebuff[ly*SCREEN_WIDTH + lx] = GPU::bg_color(mmu, color);
                 lx += 1;
             }
         }
