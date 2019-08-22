@@ -12,25 +12,30 @@ pub struct State<T: BankController> {
 impl <T: BankController>State<T> {
     pub fn new(mapper: T) -> Self {
         let mut mmu = MMU::new(mapper);
-        let gpu = GPU::new();
-        
-        let lyc = mmu.read(ioregs::LYC);
-        let ly = mmu.read(ioregs::LY);
-
-        GPU::_LCD_DISPLAY_ENABLE(&mut mmu, true);
-        GPU::_MODE(&mut mmu, GPUMode::OAM_SEARCH);
-        GPU::_COINCIDENCE_FLAG(&mut mmu, lyc == ly);
-        
+        let gpu = GPU::new(&mut mmu);        
         Self { mmu: mmu, gpu: gpu }
     }
 
     pub fn safe_write(&mut self, addr: Addr, value: Byte) {
-        if self.is_addr_allowed(addr) { self.mmu.write(addr, value); }
+        if !self.is_addr_allowed(addr) { 
+            println!("Tried writing to restricted memory at 0x{:x}", addr);  
+        }
+
+        self.mmu.write(addr, value);
+        match addr {
+            // LYC=LY flag should be updated constantly
+            LYC => self.gpu.update(&mut self.mmu),
+            _ => {},
+        }
     }
 
     pub fn safe_read(&mut self, addr: Addr) -> Byte {
-        if self.is_addr_allowed(addr) { return self.mmu.read(addr) }
-        0xFF
+        if !self.is_addr_allowed(addr) { 
+            println!("Tried reading from restricted memory at 0x{:x}", addr);  
+            return 0xFF
+        }
+        
+        self.mmu.read(addr)
     }
 
     fn is_addr_allowed(&mut self, addr: Addr) -> bool {

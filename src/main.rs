@@ -17,6 +17,7 @@ use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::rect::Rect;
 
+const WINDOW_NAME: &str = "GAMEBOY EMU";
 const SCALE: u32 = 4;
 const A_CHAR: [u8; 16] = [
     0x7C, 0x7C, 0x00, 0xC6, 0xC6, 0x00, 0x00, 0xFE, 0xC6, 0xC6, 0x00, 0xC6, 0xC6, 0x00, 0x00, 0x00,
@@ -74,7 +75,7 @@ fn main() -> Result<(), String> {
 
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
-    let window = video_subsystem.window("Chip-8 emu", SCALE * SCREEN_WIDTH as u32, SCALE * SCREEN_HEIGHT as u32)
+    let window = video_subsystem.window(WINDOW_NAME, SCALE * SCREEN_WIDTH as u32, SCALE * SCREEN_HEIGHT as u32)
         .position_centered()
         .opengl()
         .build()
@@ -84,7 +85,7 @@ fn main() -> Result<(), String> {
     
     'emulating: loop {
         let now = Instant::now();
-        for _ in 0..FRAME_CYCLES { gpu.step(mmu); }
+        for _ in 0..FRAME_STEPS { gpu.step(mmu); }
         println!("{}ms/frame", now.elapsed().as_millis());
 
         for event in events.poll_iter() {

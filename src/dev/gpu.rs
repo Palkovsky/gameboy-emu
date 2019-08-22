@@ -9,15 +9,16 @@ pub const VBLANK_HEIGHT: usize = 10;
  * MODE 1 - VBLANK
  * MODE 2 - OAM SEARCH
  * MODE 3 - LCD TRANSFER
- * Below values are internal cycles. To convert to CPU cycles: x*43/160.
- * CPU CYCLES: OAM: 20, LCD: 43, HBLANK: 51. I assume LCD=160 so I had to change other values accrodingly to keep similar proportions.
  */
-pub const OAM_SEARCH_CYCLES: u64 = 70;
-pub const LCD_TRANSFER_CYCLES: u64 = 160;
-pub const HBLANK_CYCLES: u64 = 188;
+pub const OAM_SEARCH_CYCLES: u64 = 20;
+pub const LCD_TRANSFER_CYCLES: u64 = 43;
+pub const HBLANK_CYCLES: u64 = 51;
 pub const SCANLINE_CYCLES: u64 = OAM_SEARCH_CYCLES + LCD_TRANSFER_CYCLES + HBLANK_CYCLES;
 pub const VBLANK_CYCLES: u64 = SCANLINE_CYCLES * VBLANK_HEIGHT as u64;
 pub const FRAME_CYCLES: u64 = SCANLINE_CYCLES * (SCREEN_HEIGHT + VBLANK_HEIGHT) as u64;
+
+pub const SCANLINE_STEPS: u64 = 3; // OAM -> LCD -> HBLANK -> (OAM -> LCD -> HBLANK ->)
+pub const FRAME_STEPS: u64 = SCREEN_HEIGHT as u64*SCANLINE_STEPS + 1;
 
 pub const TILE_MAP_1: u16 = 0x9800;
 pub const TILE_MAP_2: u16 = 0x9C00;
@@ -51,195 +52,165 @@ impl Default for GPUMode {
     fn default() -> Self { GPUMode::OAM_SEARCH }
 }
 
-#[derive(Default)]
-#[allow(non_snake_case)]
 pub struct GPU {
-    ptr_x: u8,
-    ptr_y: u8,
-    cycle: u64,
-    lyc_interrupted: bool, // was window drawn in current line?
+    ly: u8,
     pub framebuff: Vec<Color>,
 }
 
 impl GPU {
-    pub fn new() -> Self {
-        Self {
+    pub fn new<T: BankController>(mmu: &mut MMU<T>) -> Self {
+        let mut res = Self {
+            ly: 0,
             framebuff: vec![WHITE; SCREEN_WIDTH*SCREEN_HEIGHT],
-            lyc_interrupted: false,
-            ..Default::default()
+        };
+      
+        GPU::_LCD_DISPLAY_ENABLE(mmu, true);
+        GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
+        res.update(mmu);
+     
+        res
+    }
+
+    // step() performs update to next GPU state. It returns time taken in clocks.
+    pub fn step<T: BankController>(&mut self, mmu: &mut MMU<T>) -> u64 {
+        if !GPU::LCD_DISPLAY_ENABLE(mmu) { return 0 }
+
+        self.update(mmu);
+
+        match GPU::MODE(mmu) {
+            GPUMode::OAM_SEARCH => {
+                if GPU::COINCIDENCE_INTERRUPT_ENABLE(mmu) && GPU::COINCIDENCE_FLAG(mmu) {
+                    GPU::stat_int(mmu);
+                }
+                GPU::_MODE(mmu, GPUMode::LCD_TRANSFER);
+                OAM_SEARCH_CYCLES
+            },
+            GPUMode::LCD_TRANSFER => {
+                self.scanline(mmu);
+                GPU::_MODE(mmu, GPUMode::HBLANK);
+                LCD_TRANSFER_CYCLES
+            },
+            GPUMode::HBLANK => {
+                self.ly += 1;
+                self.update(mmu);
+
+                if self.ly == SCREEN_HEIGHT as u8 {
+                    GPU::_MODE(mmu, GPUMode::VBLANK);
+                    GPU::vblank_int(mmu);
+                    if GPU::MODE_1_VBLANK_INTERRUPT_ENABLE(mmu) { GPU::stat_int(mmu); }
+                } else {
+                    GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
+                    if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) { GPU::stat_int(mmu); }
+                }
+
+                HBLANK_CYCLES
+            },
+            GPUMode::VBLANK => {
+                GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
+                self.ly = 0;
+                self.update(mmu);
+                if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) { GPU::stat_int(mmu); }
+                VBLANK_CYCLES
+            },
         }
     }
 
+    // Draws LY scanline.
+    fn scanline<T: BankController>(&mut self, mmu: &mut MMU<T>) { 
+        let mut lx = 0u8;
+        let ly = self.ly;
+        
+        let wx = GPU::WX(mmu);
+        let wy = GPU::WY(mmu);
+        let win_enabled = GPU::WINDOW_ENABLED(mmu);
+
+        let scx = GPU::SCX(mmu);
+        let scy = GPU::SCY(mmu);
+
+        let window_tile_map = if GPU::WINDOW_TILE_MAP(mmu) { TILE_MAP_2 } else { TILE_MAP_1 };
+        let bg_tile_map = if GPU::BG_TILE_MAP(mmu) { TILE_MAP_2 } else { TILE_MAP_1 };
+
+        while lx < SCREEN_WIDTH as u8 {
+            let is_window = win_enabled && lx >= wx && ly >= wy && wx >= 7 && wx <= SCREEN_WIDTH as u8 + 7 && wy < SCREEN_HEIGHT as u8;
+            
+            let (x, y, tile_map) = if is_window {
+                (lx as u16 - 7, ly as u16, window_tile_map) 
+            } else {
+                ((scx as u16 + lx as u16) % 256, (scy as u16 + ly as u16) % 256, bg_tile_map) 
+            };
+
+            let x_tile = x/8;
+            let y_tile = y/8;
+            let off = (32*y_tile + x_tile) % 1024;
+            
+            // Reaad tile number from tile map
+            let tile_num = mmu.read(tile_map + off);
+
+            // By using tile number, fetch tile data from VRAM
+            let tile_addr = match (GPU::TILE_ADDRESSING(mmu), tile_num) {
+                // 8000-8FFF unsigned addressing
+                (true, tile) => TILE_BLOCK_1 + TILE_SIZE*tile as u16,
+                // 8800 signed addressing
+                (false, tile) if tile < 0x80 => TILE_BLOCK_2 + TILE_SIZE*tile as u16,
+                (false, tile) if tile >= 0x80 => TILE_BLOCK_2 - TILE_SIZE*(tile - 0x80) as u16,
+                // Won't happen
+                (a, b) => { panic!("Invalid tile addressing pattern: ({}, {})", a, b) }
+            };
+            let tile: Vec<u8> = (0..TILE_SIZE).map(|i| mmu.read(tile_addr + i)).collect();
+
+            // Which row we want to render?
+            let byte_y = (y - y_tile*8) as usize;
+            let (b1, b2) = (tile[2*byte_y], tile[2*byte_y+1]);
+
+            // Which col we want to render?
+            //let byte_x = if lx == 0 { scx as u16 % 8 } else { (x - x_tile*8) as u16 };
+            let byte_x = (x - x_tile*8) as u16 ;
+
+            for x in byte_x..8 {    
+                if lx >= SCREEN_WIDTH as u8 { break; }
+
+                // When drawing background, but entered window area.
+                if !is_window && win_enabled && lx >= wx && ly >= wy { break; }
+
+                let color = match (b2 & (0x80 >> x) != 0, b1 & (0x80 >> x) != 0) {
+                    (true, true) => 3,
+                    (true, false) => 2,
+                    (false, true) => 1,
+                    (false, false) => 0,
+                };
+
+                self.framebuff[ly as usize*SCREEN_WIDTH + lx as usize] = GPU::bg_color(mmu, color);
+                lx += 1;
+            }
+        }
+    }
+
+    // update() performs LY=LYC check, updates COINCIDENCE FLAG and (optionally) triggers STAT interrupt.
+    pub fn update<T: BankController>(&mut self, mmu: &mut MMU<T>) {
+        let lyc = GPU::LYC(mmu);
+        GPU::_LY(mmu, self.ly);
+        GPU::_COINCIDENCE_FLAG(mmu, self.ly == lyc);
+    }
+
+    // Triggers VBLANK interrupt
     fn vblank_int<T: BankController>(mmu: &mut MMU<T>) {
         let iflg = mmu.read(ioregs::IF);
         mmu.write(ioregs::IF, iflg | 1);
     }
 
+    // Triggers STAT interrupt
     fn stat_int<T: BankController>(mmu: &mut MMU<T>) {
         let iflg = mmu.read(ioregs::IF);
         mmu.write(ioregs::IF, iflg | 2);
     }
 
-    // VBLANK_START
-    fn on_vblank_start<T: BankController>(&mut self, mmu: &mut MMU<T>) {
-        GPU::_MODE(mmu, GPUMode::VBLANK);
-        self.ptr_y += 1;
-        self.ptr_x = 0;
-
-        self.update_ly(mmu);
-        GPU::vblank_int(mmu);
-        if GPU::MODE_1_VBLANK_INTERRUPT_ENABLE(mmu) {
-            GPU::stat_int(mmu);
-        }
-    }
-
-    // VBLANK END
-    fn on_vblank_end<T: BankController>(&mut self, mmu: &mut MMU<T>){
-        GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
-        self.ptr_y = 0;
-        self.ptr_x = 0;
-        self.lyc_interrupted = false;
-
-        println!("VBLANK END");
-        self.update_ly(mmu);
-        if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) { GPU::stat_int(mmu); }
-    }
-
-    // MID VBLANK
-    // 144 <= LY <= 153 stands for VBLANK, so I assume that LY must be updated mid VBLANK.
-    fn on_vblank_update<T: BankController>(&mut self, mmu: &mut MMU<T>) {
-        if self.cycle % SCANLINE_CYCLES != SCANLINE_CYCLES - 1 { return }
-        self.ptr_y += 1;
-        self.ptr_x = 0;
-        
-        self.update_ly(mmu);
-    }
-
-    // HBLANK START
-    fn on_hblank_start<T: BankController>(&mut self, mmu: &mut MMU<T>) {
-        GPU::_MODE(mmu, GPUMode::HBLANK);
-
-        if GPU::MODE_0_HBLANK_INTERRUPT_ENABLE(mmu) { GPU::stat_int(mmu); }
-    }
-
-    // HBLANK END
-    // Move ptr to next line, switch mode to OAM.
-    fn on_hblank_end<T: BankController>(&mut self, mmu: &mut MMU<T>) {
-        GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
-        self.ptr_y += 1;
-        self.ptr_x = 0;
-        self.lyc_interrupted = false;
-        self.update_ly(mmu);
-        
-        if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) { GPU::stat_int(mmu); }
-    }
-
-    // LCD TRANSFER START
-    fn on_lcd_start<T: BankController>(&mut self, mmu: &mut MMU<T>){
-        GPU::_MODE(mmu, GPUMode::LCD_TRANSFER);
-    }
-
-    // MID LCD TRANSFER
-    // Currently it draws one pixel. In future it should draw whole single line and update clock accrodingly.
-    fn on_lcd_update<T: BankController>(&mut self, mmu: &mut MMU<T>) {        
-        let wx =  mmu.read(ioregs::WX);
-        let wy =  mmu.read(ioregs::WY);
-        let is_window = GPU::WINDOW_ENABLED(mmu) && self.ptr_x >= wx && self.ptr_y >= wy && wx >= 7 && wx <= 166 && wy <= 143;
-
-        let (x, y, tile_map_base) = if is_window {
-            (self.ptr_x as u16 - 7, self.ptr_y as u16, if GPU::WINDOW_TILE_MAP(mmu) { TILE_MAP_2 } else { TILE_MAP_1 })
-        } else {
-            let scx = mmu.read(ioregs::SCX);
-            let scy = mmu.read(ioregs::SCY);
-            ((scx as u16 + self.ptr_x as u16) % 256, (scy as u16 + self.ptr_y as u16) % 256, if GPU::BG_TILE_MAP(mmu) { TILE_MAP_2 } else { TILE_MAP_1 })
-        };
-
-        /* BACKGROUND/WINDOW RENDERING */
-        let x_tile = x/8;
-        let y_tile = y/8;
-        let off = (32*y_tile + x_tile) % 1024;
-        let tile_num = mmu.read(tile_map_base + off);
-
-        let tile_addr = 
-          // 8000-8FFF unsigned addressing
-          if GPU::TILE_ADDRESSING(mmu) { TILE_BLOCK_1 + TILE_SIZE*tile_num as u16 }
-          // 8800 signed addressing
-          else if tile_num < 0x80 { TILE_BLOCK_2 + TILE_SIZE*tile_num as u16}
-          else { TILE_BLOCK_2 - TILE_SIZE*(tile_num - 0x80) as u16};
-
-        // Load tile data
-        let tile: Vec<u8> = (0..TILE_SIZE).map(|i| mmu.read(tile_addr + i)).collect();
-        let byte_x = x - x_tile*8;
-        let byte_y = (y - y_tile*8) as usize;
-        let (b1, b2) = (tile[2*byte_y], tile[2*byte_y+1]);
-        let color = match (b2 & (0x80 >> byte_x) != 0, b1 & (0x80 >> byte_x) != 0) {
-            (true, true) => 3,
-            (true, false) => 2,
-            (false, true) => 1,
-            (false, false) => 0,
-        };
-        
-        self.framebuff[self.ptr_y as usize * SCREEN_WIDTH + self.ptr_x as usize] = GPU::bg_color(mmu, color);
-        self.ptr_x += 1;
-    }
-
-    pub fn step<T: BankController>(&mut self, mmu: &mut MMU<T>) {
-        if !GPU::LCD_DISPLAY_ENABLE(mmu) {
-            return
-        }
-
-        self.update_ly(mmu);
-        if !self.lyc_interrupted && GPU::COINCIDENCE_FLAG(mmu) && GPU::COINCIDENCE_INTERRUPT_ENABLE(mmu) {
-            GPU::stat_int(mmu);
-            self.lyc_interrupted = true;
-        }
-
-        // Where are we on current scanline?
-        let line_cycle = self.cycle % SCANLINE_CYCLES;
-        let mode = GPU::MODE(mmu);
-
-        // Starting VBLANK
-        if mode == GPUMode::HBLANK && self.ptr_y == SCREEN_HEIGHT as u8 - 1 && line_cycle == SCANLINE_CYCLES - 1 {
-            self.on_vblank_start(mmu);
-        }
-        // End of VBLANK
-        else if mode == GPUMode::VBLANK && self.cycle == FRAME_CYCLES - 1 {
-            self.on_vblank_end(mmu);
-        }
-        // Starting HBLANK
-        else if mode == GPUMode::LCD_TRANSFER && self.ptr_x == SCREEN_WIDTH as u8 - 1 {
-            self.on_lcd_update(mmu);
-            self.on_hblank_start(mmu);
-        }
-        // Ending HBLANK
-        else if mode == GPUMode::HBLANK && line_cycle == SCANLINE_CYCLES - 1 {
-            self.on_hblank_end(mmu);
-        } 
-        // Ending OAM_SEARCH
-        else if mode == GPUMode::OAM_SEARCH && line_cycle == OAM_SEARCH_CYCLES - 1 {
-            self.on_lcd_start(mmu);
-        } 
-        // During VBLANK
-        else if mode == GPUMode::VBLANK {
-            self.on_vblank_update(mmu);
-        }
-        // During LCD_TRANSFER
-        else if mode == GPUMode::LCD_TRANSFER {
-            self.on_lcd_update(mmu);
-        } 
-
-        self.cycle = (self.cycle + 1) % FRAME_CYCLES;
-    }
-
-    fn update_ly<T: BankController>(&mut self, mmu: &mut MMU<T>) {
-        let lyc = GPU::LYC(mmu);
-        // println!("GPU | LYC {}, LINE {}", lyc, self.ptr_y);
-        GPU::_LY(mmu, self.ptr_y);
-        GPU::_COINCIDENCE_FLAG(mmu, self.ptr_y == lyc);
-    }
-
     pub fn LY<T: BankController>(mmu: &mut MMU<T>) -> u8 { mmu.read(ioregs::LY) }
     pub fn LYC<T: BankController>(mmu: &mut MMU<T>) -> u8 { mmu.read(ioregs::LYC) }
+    pub fn WX<T: BankController>(mmu: &mut MMU<T>) -> u8 { mmu.read(ioregs::WX) }
+    pub fn WY<T: BankController>(mmu: &mut MMU<T>) -> u8 { mmu.read(ioregs::WY) }
+    pub fn SCX<T: BankController>(mmu: &mut MMU<T>) -> u8 { mmu.read(ioregs::SCX) }
+    pub fn SCY<T: BankController>(mmu: &mut MMU<T>) -> u8 { mmu.read(ioregs::SCY) }
+
     pub fn _LY<T: BankController>(mmu: &mut MMU<T>, val: u8) { mmu.write(ioregs::LY, val); }
 
     // LCDC GETTERS

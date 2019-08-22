@@ -6,13 +6,7 @@ mod gputest {
 
     fn mock() -> (MMU<mbc::MBC1>, GPU) {
         let mut mmu = mem::MMU::new(mbc::MBC1::new(vec![0; 1 << 21]));
-        let gpu = GPU::new();
-        GPU::_MODE(&mut mmu, GPUMode::OAM_SEARCH);
-
-        let lyc = mmu.read(ioregs::LYC);
-        let ly = mmu.read(ioregs::LY);
-        GPU::_COINCIDENCE_FLAG(&mut mmu, lyc == ly);
-
+        let gpu = GPU::new(&mut mmu);
         (mmu, gpu)
     }
 
@@ -25,7 +19,6 @@ mod gputest {
         let mut state = mock_state();
 
         // Should be in OAM_SEARCH now
-        state.gpu.step(&mut state.mmu);
         assert_eq!(GPU::MODE(&mut state.mmu), GPUMode::OAM_SEARCH);
 
         assert_eq!(state.safe_read(VRAM_ADDR), 0xFF);
@@ -37,7 +30,7 @@ mod gputest {
         assert_eq!(state.safe_read(OAM_ADDR + 80), 0xFF);
 
         // Shold be in LCD_TRANSFER
-        for _ in 1..OAM_SEARCH_CYCLES { state.gpu.step(&mut state.mmu) }
+        state.gpu.step(&mut state.mmu);
         assert_eq!(GPU::MODE(&mut state.mmu), GPUMode::LCD_TRANSFER);
         
         assert_eq!(state.safe_read(VRAM_ADDR), 0xFF);
@@ -53,12 +46,22 @@ mod gputest {
     fn vblank_interrupts() {
         let (mut mmu, mut gpu) = mock();
 
+        // VBLANK INT shoul be reset
+        assert!(mmu.read(ioregs::IF) & 1 == 0);
+
         // 10 frames
         for _ in 0..10 { 
-            for _ in 0..gpu::SCANLINE_CYCLES*gpu::SCREEN_HEIGHT as u64 {
+            // Should be on start of scanline
+            assert_eq!(GPU::MODE(&mut mmu), GPUMode::OAM_SEARCH);
+
+            // Screen render
+            for _ in 0..gpu::SCANLINE_STEPS*gpu::SCREEN_HEIGHT as u64 {
                 assert!(mmu.read(ioregs::IF) & 1 == 0);
                 gpu.step(&mut mmu);
             }
+
+            // Should be in VBLANK
+            assert_eq!(GPU::MODE(&mut mmu), GPUMode::VBLANK);
 
             // VBLANK interrupt flag should be set now
             let iflag = mmu.read(ioregs::IF);
@@ -66,10 +69,7 @@ mod gputest {
             mmu.write(ioregs::IF, iflag & 0xFE);
 
             // Finish VBLANK
-            for _ in 0..gpu::SCANLINE_CYCLES*gpu::VBLANK_HEIGHT as u64 {
-                assert!(mmu.read(ioregs::IF) & 1 == 0);
-                gpu.step(&mut mmu);
-            }
+            gpu.step(&mut mmu);
         }
     }
 
@@ -79,10 +79,16 @@ mod gputest {
 
         // 10 frames
         for _ in 0..10 {
-            for ly in 0..(gpu::SCREEN_HEIGHT + gpu::VBLANK_HEIGHT) {
+            assert_eq!(GPU::MODE(&mut mmu), GPUMode::OAM_SEARCH);
+
+            for ly in 0..gpu::SCREEN_HEIGHT {
                 assert_eq!(mmu.read(ioregs::LY), ly as u8);
-                for _ in 0..gpu::SCANLINE_CYCLES { gpu.step(&mut mmu); }
+                assert_eq!(GPU::LY(&mut mmu), ly as u8);
+                for _ in 0..gpu::SCANLINE_STEPS { gpu.step(&mut mmu); }
             }
+
+            assert_eq!(GPU::MODE(&mut mmu), GPUMode::VBLANK);
+            gpu.step(&mut mmu);
         }
     }
 
@@ -91,30 +97,26 @@ mod gputest {
         let (mut mmu, mut gpu) = mock();
 
         // 10 frames
-        for _ in 0..10 {
-            // Check if OAM/LCD/HBLANK states take proper number of cycles
+        for _ in 0..10 {            
             for _ in 0..gpu::SCREEN_HEIGHT {
-                for _ in 0..gpu::OAM_SEARCH_CYCLES {
-                    assert_eq!(GPU::MODE(&mut mmu), gpu::GPUMode::OAM_SEARCH);
-                    gpu.step(&mut mmu);
-                }
+                // Scanline starts with OAM_SEARCH
+                assert_eq!(GPU::MODE(&mut mmu), GPUMode::OAM_SEARCH);
 
-                for _ in 0..gpu::LCD_TRANSFER_CYCLES {
-                    assert_eq!(GPU::MODE(&mut mmu), gpu::GPUMode::LCD_TRANSFER);
-                    gpu.step(&mut mmu);
-                }
+                // Then there is LCD_TRANSFER
+                gpu.step(&mut mmu);
+                assert_eq!(GPU::MODE(&mut mmu), gpu::GPUMode::LCD_TRANSFER);
 
-                for _ in 0..gpu::HBLANK_CYCLES {
-                    assert_eq!(GPU::MODE(&mut mmu), gpu::GPUMode::HBLANK);
-                    gpu.step(&mut mmu);
-                }
-            }
+                // Then HBLANK
+                gpu.step(&mut mmu);
+                assert_eq!(GPU::MODE(&mut mmu), gpu::GPUMode::HBLANK);
 
-            // Check if VBLANK takes proper number of cycles
-            for _ in 0..gpu::VBLANK_CYCLES {
-                assert_eq!(GPU::MODE(&mut mmu), gpu::GPUMode::VBLANK);
+                // Back to OAM
                 gpu.step(&mut mmu);
             }
+
+            // VBLANK at the end
+            assert_eq!(GPU::MODE(&mut mmu), gpu::GPUMode::VBLANK);
+            gpu.step(&mut mmu);
         }
     }
 
@@ -147,55 +149,80 @@ mod gputest {
 
     #[test]
     fn coincidence_flag() {
-        let (mut mmu, mut gpu) = mock();
-        mmu.write(ioregs::IF, 0);
+        let mut state = mock_state();
 
-        for i in 1..gpu::SCREEN_HEIGHT {
+        // STAT interrupt shouldn't be set        
+        assert!((state.mmu.read(ioregs::IF) & 2) == 0);
+
+        // Configure GPU
+        GPU::_LCD_DISPLAY_ENABLE(&mut state.mmu, true);
+        GPU::_COINCIDENCE_INTERRUPT_ENABLE(&mut state.mmu, true);
+        GPU::_MODE_0_HBLANK_INTERRUPT_ENABLE(&mut state.mmu, false);
+        GPU::_MODE_1_VBLANK_INTERRUPT_ENABLE(&mut state.mmu, false);
+        GPU::_MODE_2_OAM_INTERRUPT_ENABLE(&mut state.mmu, false);
+
+        for i in 0..gpu::SCREEN_HEIGHT {
             let lyc = i as u64;
-            mmu.write(LYC, lyc as u8);
-            GPU::_LCD_DISPLAY_ENABLE(&mut mmu, true);
-            GPU::_COINCIDENCE_INTERRUPT_ENABLE(&mut mmu, true);
-            GPU::_MODE_0_HBLANK_INTERRUPT_ENABLE(&mut mmu, false);
-            GPU::_MODE_1_VBLANK_INTERRUPT_ENABLE(&mut mmu, false);
-            GPU::_MODE_2_OAM_INTERRUPT_ENABLE(&mut mmu, false);
-
+            state.safe_write(LYC, lyc as u8);
+    
             // All scanlnes before LYC
-            for _ in 0..lyc*gpu::SCANLINE_CYCLES-1 {
-                gpu.step(&mut mmu);
-                assert_eq!(GPU::COINCIDENCE_FLAG(&mut mmu), false);
+            let updates = if lyc == 0 { 0 } else { lyc*gpu::SCANLINE_STEPS - 1};
+            for _ in 0..updates {
+                state.gpu.step(&mut state.mmu);
+                assert_eq!(GPU::COINCIDENCE_FLAG(&mut state.mmu), false);
             }
 
-            assert!((mmu.read(ioregs::IF) & 2) == 0);
-            gpu.step(&mut mmu);
-
-            // One line of LYC
-            for j in 0..gpu::SCANLINE_CYCLES {
-
-                // Check if LYC interrupt fired
-                if j == 1 {
-                    let iflag = mmu.read(ioregs::IF);
-                    if i < gpu::SCREEN_HEIGHT { 
-                        // STAT iterupt should be set if LY < 144
-                        assert!((iflag & 2) != 0);
-                        // Reset STAT interrupt
-                        mmu.write(ioregs::IF, iflag & 0xFD); 
-                    } else {
-                        // LYC interrupt shouldn't be called in VBLANK
-                        assert!((iflag & 2) == 0);
-                    }
-                }
-
-                assert_eq!(GPU::COINCIDENCE_FLAG(&mut mmu), true);
-                gpu.step(&mut mmu);
-
+            if lyc != 0 {
+                // HBLANK of line before LYC
+                assert_eq!(GPU::MODE(&mut state.mmu), GPUMode::HBLANK);
+                // Flag should be set
+                assert_eq!(GPU::COINCIDENCE_FLAG(&mut state.mmu), false);
+                // But interrupt shouldn't since it triggers DURING OAM Search
+                assert!((state.mmu.read(ioregs::IF) & 2) == 0);
+                // Finish HBLANK of line before
+                state.gpu.step(&mut state.mmu);
             }
 
-            // Rest of scanlines in current frame
-            for _ in 0..gpu::SCANLINE_CYCLES*(SCREEN_HEIGHT as u64 + VBLANK_HEIGHT as u64 - lyc - 1) {
+            assert_eq!(GPU::MODE(&mut state.mmu), GPUMode::OAM_SEARCH);
+            // Flag should be set
+            assert_eq!(GPU::COINCIDENCE_FLAG(&mut state.mmu), true);
+            // But interrupt shouldn't since it triggers DURING OAM Search
+            assert!((state.mmu.read(ioregs::IF) & 2) == 0);
+
+            // Finish OAM search
+            state.gpu.step(&mut state.mmu);
+            assert_eq!(GPU::MODE(&mut state.mmu), GPUMode::LCD_TRANSFER);
+            // Flag still should be set
+            assert_eq!(GPU::COINCIDENCE_FLAG(&mut state.mmu), true);            
+            // STAT interrupt flag should be set now
+            let iflag = state.mmu.read(ioregs::IF);
+            assert!((iflag & 2) != 0);
+            state.safe_write(ioregs::IF, iflag & 0xFD); 
+            
+            // Finish LCD transfer
+            state.gpu.step(&mut state.mmu);
+            assert_eq!(GPU::MODE(&mut state.mmu), GPUMode::HBLANK);
+            assert!((state.mmu.read(ioregs::IF) & 2) == 0); // Shouln't set interrupt for same line
+            assert_eq!(GPU::COINCIDENCE_FLAG(&mut state.mmu), true);
+
+            // Finish HBLANK
+            state.gpu.step(&mut state.mmu);
+            if GPU::LY(&mut state.mmu) == gpu::SCREEN_HEIGHT as u8 {
+                assert_eq!(GPU::MODE(&mut state.mmu), GPUMode::VBLANK);
+            } else {
+                assert_eq!(GPU::MODE(&mut state.mmu), GPUMode::OAM_SEARCH);
+            }
+            assert!((state.mmu.read(ioregs::IF) & 2) == 0); // Shouln't set interrupt for same line
+            assert_eq!(GPU::COINCIDENCE_FLAG(&mut state.mmu), false);
+
+            // Rest of steps in current
+            for _ in 0..gpu::SCANLINE_STEPS*(SCREEN_HEIGHT as u64 - lyc - 1) + 1{
                 // println!("TEST | LYC {}, LINE {}", lyc, j);
-                assert_eq!(GPU::COINCIDENCE_FLAG(&mut mmu), false);
-                gpu.step(&mut mmu);
+                assert_eq!(GPU::COINCIDENCE_FLAG(&mut state.mmu), false);
+                state.gpu.step(&mut state.mmu);
             }
+
+            assert_eq!(GPU::MODE(&mut state.mmu), GPUMode::OAM_SEARCH);
         }
     }
 
