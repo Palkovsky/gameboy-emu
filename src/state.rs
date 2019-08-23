@@ -2,18 +2,21 @@ use super::*;
 
 /*
  * State helps orchestrating whole system. It allows implementig features such as VRAM/OAM write restrictions
- * based on present GPU mode.
+ * based on present GPU mode. State allows triggering certain events after writing to specific IO registers, 
+ * ex. write to LYC should trigger coincidence flag check in GPU.
  */
 pub struct State<T: BankController> {
     pub gpu: GPU,
+    pub timer: Timer,
     pub mmu: MMU<T>,
 }
 
 impl <T: BankController>State<T> {
     pub fn new(mapper: T) -> Self {
         let mut mmu = MMU::new(mapper);
-        let gpu = GPU::new(&mut mmu);        
-        Self { mmu: mmu, gpu: gpu }
+        let gpu = GPU::new(&mut mmu);
+        let timer = Timer::new();     
+        Self { mmu: mmu, gpu: gpu, timer: timer }
     }
 
     pub fn safe_write(&mut self, addr: Addr, value: Byte) {
@@ -25,6 +28,12 @@ impl <T: BankController>State<T> {
         match addr {
             // LYC=LY flag should be updated constantly
             LYC => self.gpu.update(&mut self.mmu),
+            // Write to DIV resets it to 0
+            DIV => { 
+                self.mmu.write(addr, 0); 
+                self.timer.reset_internal_div();
+            },
+            TIMA => self.timer.reset_internal_tima(),
             _ => {},
         }
     }

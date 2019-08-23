@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 chrono = "0.4"
 sdl2 = "0.32.2"
+rand = "0.7"

@@ -11,6 +11,7 @@ pub const VBLANK_HEIGHT: usize = 10;
  * MODE 2 - OAM SEARCH
  * MODE 3 - LCD TRANSFER
  */
+
 const OAM_SEARCH_CYCLES: u64 = 20;
 const LCD_TRANSFER_CYCLES: u64 = 43;
 const HBLANK_CYCLES: u64 = 51;
@@ -58,37 +59,29 @@ pub struct GPU {
     pub framebuff: Vec<Color>,
 }
 
-impl GPU {
-    pub fn new<T: BankController>(mmu: &mut MMU<T>) -> Self {
-        let mut res = Self {
-            ly: 0,
-            framebuff: vec![WHITE; SCREEN_WIDTH*SCREEN_HEIGHT],
-        };
-      
-        GPU::_LCD_DISPLAY_ENABLE(mmu, true);
-        GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
-        res.update(mmu);
-        res
+impl <T: BankController>Clocked<T> for GPU {
+    fn next_time(&self, mmu: &mut MMU<T>) -> u64 {
+        if !GPU::LCD_DISPLAY_ENABLE(mmu) { return 0 }
+        match GPU::MODE(mmu) {
+            GPUMode::OAM_SEARCH => OAM_SEARCH_CYCLES,
+            GPUMode::LCD_TRANSFER => LCD_TRANSFER_CYCLES,
+            GPUMode::HBLANK => HBLANK_CYCLES,
+            GPUMode::VBLANK => VBLANK_CYCLES,
+        } 
     }
 
-    // step() performs update to next GPU state. It returns time taken in clocks.
-    pub fn step<T: BankController>(&mut self, mmu: &mut MMU<T>) -> u64 {
-        if !GPU::LCD_DISPLAY_ENABLE(mmu) { return 0 }
-
+    fn step(&mut self, mmu: &mut MMU<T>) {
         self.update(mmu);
-
         match GPU::MODE(mmu) {
             GPUMode::OAM_SEARCH => {
                 if GPU::COINCIDENCE_INTERRUPT_ENABLE(mmu) && GPU::COINCIDENCE_FLAG(mmu) {
                     GPU::stat_int(mmu);
                 }
                 GPU::_MODE(mmu, GPUMode::LCD_TRANSFER);
-                OAM_SEARCH_CYCLES
             },
             GPUMode::LCD_TRANSFER => {
                 self.scanline(mmu);
                 GPU::_MODE(mmu, GPUMode::HBLANK);
-                LCD_TRANSFER_CYCLES
             },
             GPUMode::HBLANK => {
                 self.ly += 1;
@@ -102,17 +95,28 @@ impl GPU {
                     GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
                     if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) { GPU::stat_int(mmu); }
                 }
-
-                HBLANK_CYCLES
             },
             GPUMode::VBLANK => {
                 GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
                 self.ly = 0;
                 self.update(mmu);
                 if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) { GPU::stat_int(mmu); }
-                VBLANK_CYCLES
             },
-        }
+        };
+    }
+}
+
+impl GPU {
+    pub fn new<T: BankController>(mmu: &mut MMU<T>) -> Self {
+        let mut res = Self {
+            ly: 0,
+            framebuff: vec![WHITE; SCREEN_WIDTH*SCREEN_HEIGHT],
+        };
+      
+        GPU::_LCD_DISPLAY_ENABLE(mmu, true);
+        GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
+        res.update(mmu);
+        res
     }
 
     // Draws LY scanline.
@@ -204,16 +208,9 @@ impl GPU {
     }
 
     // Triggers VBLANK interrupt
-    fn vblank_int<T: BankController>(mmu: &mut MMU<T>) {
-        let iflg = mmu.read(ioregs::IF);
-        mmu.write(ioregs::IF, iflg | 1);
-    }
-
+    fn vblank_int<T: BankController>(mmu: &mut MMU<T>) { mmu.set_bit(ioregs::IF, 0, true); }
     // Triggers STAT interrupt
-    fn stat_int<T: BankController>(mmu: &mut MMU<T>) {
-        let iflg = mmu.read(ioregs::IF);
-        mmu.write(ioregs::IF, iflg | 2);
-    }
+    fn stat_int<T: BankController>(mmu: &mut MMU<T>) { mmu.set_bit(ioregs::IF, 1, true); }
 
     pub fn LY<T: BankController>(mmu: &mut MMU<T>) -> u8 { mmu.read(ioregs::LY) }
     pub fn LYC<T: BankController>(mmu: &mut MMU<T>) -> u8 { mmu.read(ioregs::LYC) }
