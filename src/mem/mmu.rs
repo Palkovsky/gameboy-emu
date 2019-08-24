@@ -112,7 +112,7 @@ impl <T: BankController>MMU<T> {
         }
     }
 
-    fn write_base_ram(&mut self, addr: Addr, offset: usize, value: Byte) {
+    fn write_base_ram(&mut self, _: Addr, offset: usize, value: Byte) {
         self.ram[offset] = value;
     }
 

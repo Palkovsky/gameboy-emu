@@ -8,15 +8,15 @@ use std::fmt;
  * Handler returns number of machine cycles consumed. Hardcoding cycles wouldn't, because 
  * conditional jumps/calls take varying number of cycles.
  */
-type InstructionHandler = FnMut(&mut CPU, u8, u8) -> u8;
+type InstructionHandler<T: BankController> = FnMut(&mut CPU, &mut State<T>, u8, u8) -> u8;
 
-struct Instruction<'a>{
+struct Instruction<'a, T: BankController> {
     mnemo: &'a str,
     size: u8,
-    handler: Box<InstructionHandler>,
+    handler: Box<InstructionHandler<T>>,
 }
-impl <'a>Instruction<'a> {
-    pub fn new(mnemo: &'a str, size: u8, handler: Box<InstructionHandler>) -> Self {
+impl <'a, T: BankController>Instruction<'a, T> {
+    pub fn new(mnemo: &'a str, size: u8, handler: Box<InstructionHandler<T>>) -> Self {
         Self { mnemo: mnemo, size: size, handler: handler, }
     }
 }
@@ -24,15 +24,33 @@ impl <'a>Instruction<'a> {
 /*
  * Decoder for Gameboy CPU (LR35902) instruction set 
  */
-fn decode(op: u8, op1: u8, op2: u8) -> Option<Instruction<'static>> {
+fn decode<T: BankController>(op: u8, op1: u8, op2: u8) -> Option<Instruction<'static, T>> {
     let nibbles = ((op >> 4) & 0xF, op & 0xF);
     
-    let (mnemo, size, f) = match (nibbles, op1, op2) {
-        ((0x0, 0x0), _, _) => ("NOP", 1, |_: &mut CPU, _: u8, _: u8| 1),
+    let (mnemo, size, f): (&str, u8, Box<InstructionHandler<T>>) = match (nibbles, op1, op2) {
+
+        // Misc/Control instructions
+        ((0x0, 0x0), _, _) => ("NOP", 1, Box::new(|_, _, _, _| 1)),
+        ((0x1, 0x0), _, _) => ("STOP 0", 1, Box::new(|cpu, _, _, _| {
+            cpu.STOP = true;
+            1
+        })),
+        ((0x7, 0x6), _, _) => ("HALT", 1, Box::new(|cpu, _, _, _| {
+                cpu.HALT = true;
+                1
+        })),
+        ((0xF, 0x4), _, _) => ("DI", 1, Box::new(|cpu, _, _, _| {
+                cpu.IME = false;
+                1
+        })),
+        ((0xF, 0xB), _, _) => ("EI", 1, Box::new(|cpu, _, _, _| {
+                cpu.IME = true;
+                1
+        })),
         _ => return None,
     };
-    
-    Some(Instruction::new(mnemo, size, Box::new(f)))
+        
+    Some(Instruction::new(mnemo, size, f))
 }
 
 
@@ -83,6 +101,7 @@ pub struct CPU {
     C: bool,
     /* Other flags */
     IME: bool,
+    STOP: bool,
     HALT: bool,
 }
 impl Default for CPU {
@@ -100,6 +119,7 @@ impl Default for CPU {
             H: true,
             C: true,
             IME: true,
+            STOP: false,
             HALT: false,
         }
     }
@@ -116,7 +136,7 @@ const IVT_SIZE: usize = 5;
 const IVT: [u8; IVT_SIZE] = [0x40, 0x48, 0x50, 0x58, 0x60];
 
 impl CPU {
-    pub fn new() { Default::default() }
+    pub fn new() -> Self { Default::default() }
 
     // step() executes single instruction and returns number of taken machine cycles
     pub fn step<T: BankController>(&mut self, state: &mut State<T>) -> u64 {
@@ -130,7 +150,7 @@ impl CPU {
         let Instruction { size, handler: mut f, ..} = decode(op, op1, op2)
             .unwrap_or_else(|| panic!("Unrecognized OPCODE 0x{:x} at 0x{:x}. {:?}", op, pc, self));
         let argc = size - 1;
-        let cycles = f(self, if argc >= 1 { op1 } else { 0 }, if argc >= 2 { op2 } else { 0 }) as u64;
+        let cycles = f(self, state, if argc >= 1 { op1 } else { 0 }, if argc >= 2 { op2 } else { 0 }) as u64;
         
         self.PC.set(self.PC.val() + size as u16);
         cycles

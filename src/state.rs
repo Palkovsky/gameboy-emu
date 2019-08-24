@@ -1,9 +1,30 @@
 use super::*;
 
 /*
- * State helps orchestrating whole system. It allows implementig features such as VRAM/OAM write restrictions
- * based on present GPU mode. State allows triggering certain events after writing to specific IO registers, 
- * ex. write to LYC should trigger coincidence flag check in GPU.
+ * Runtime is used to connect CPU with everything stored in State(memory, IO devices).
+ * I created it, cuz borrow checker yelld at me for doing something like this: self.cpu.step(self) // multiple mutable borrow
+ */
+pub struct Runtime<T: BankController> {
+    pub cpu: CPU,
+    pub state: State<T>,
+}
+
+impl <T: BankController>Runtime<T> {
+    pub fn new(mapper: T) -> Self {
+        let cpu = CPU::new();
+        let state = State::new(mapper);
+        Self { cpu: cpu, state: state }
+    }
+
+    pub fn step(&mut self) {
+        self.cpu.step(&mut self.state);
+    }
+}
+
+/*
+ * State is middleware between CPU<->Memory/IO. It offers CPU safe interface for writng/reading memory which helps achieving 
+ * certain constrains that couldn't be done inside single device.
+ * For example: updatde coincidence flag when LYC changes or disallow VRAM/OAM access when GPU is rendering.
  */
 pub struct State<T: BankController> {
     pub gpu: GPU,
@@ -43,7 +64,6 @@ impl <T: BankController>State<T> {
             println!("Tried reading from restricted memory at 0x{:x}", addr);  
             return 0xFF
         }
-        
         self.mmu.read(addr)
     }
 
