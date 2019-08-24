@@ -21,14 +21,20 @@ impl <'a>Instruction<'a> {
     }
 }
 
-fn decode(op: u8) -> Option<Instruction<'static>> {
-    let (mnemo, size, f) = match op {
-        0x00 => ("NOP", 1, |_: &mut CPU, _: u8, _: u8| { 1 }),
+/*
+ * Decoder for Gameboy CPU (LR35902) instruction set 
+ */
+fn decode(op: u8, op1: u8, op2: u8) -> Option<Instruction<'static>> {
+    let nibbles = ((op >> 4) & 0xF, op & 0xF);
+    
+    let (mnemo, size, f) = match (nibbles, op1, op2) {
+        ((0x0, 0x0), _, _) => ("NOP", 1, |_: &mut CPU, _: u8, _: u8| 1),
         _ => return None,
     };
-
+    
     Some(Instruction::new(mnemo, size, Box::new(f)))
 }
+
 
 #[repr(C)]
 union Reg {
@@ -118,14 +124,13 @@ impl CPU {
         if self.HALT { return 1 }
 
         let pc = self.PC.val();
-        let opcode = state.safe_read(pc);
 
-        let Instruction { size, handler: mut f, ..} = decode(opcode)
-            .unwrap_or_else(|| panic!("Unrecognized OPCODE 0x{:x} at 0x{:x}. {:?}", opcode, pc, self));
+        // No instruction longer than 3 bytes on this CPU
+        let (op, op1, op2) = (state.safe_read(pc), state.safe_read(pc+1), state.safe_read(pc+2));
+        let Instruction { size, handler: mut f, ..} = decode(op, op1, op2)
+            .unwrap_or_else(|| panic!("Unrecognized OPCODE 0x{:x} at 0x{:x}. {:?}", op, pc, self));
         let argc = size - 1;
-        let op1 = if argc >= 1 { state.safe_read(pc + 1) } else { 0 };
-        let op2 = if argc >= 2 { state.safe_read(pc + 2) } else { 0 };
-        let cycles = f(self, op1, op2) as u64;
+        let cycles = f(self, if argc >= 1 { op1 } else { 0 }, if argc >= 2 { op2 } else { 0 }) as u64;
         
         self.PC.set(self.PC.val() + size as u16);
         cycles
