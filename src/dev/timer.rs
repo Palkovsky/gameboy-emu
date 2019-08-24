@@ -1,3 +1,5 @@
+#![allow(non_snake_case, non_camel_case_types)]
+
 use super::*;
 
 // 262144 Hz,    65536 Hz,     16384 Hz,      4096 Hz  freq
@@ -101,8 +103,6 @@ impl Timer {
     01: 262.144 Khz (~268.4 KHz SGB)
     10: 65.536 KHz (~67.11 KHz SGB)
     11: 16.384 KHz (~16.78 KHz SGB)
-
-    Function will return index in TIMER_MODES array.
 */
     pub fn MODE<T: BankController>(mmu: &mut MMU<T>) -> TimerMode { 
         match (mmu.read_bit(ioregs::TAC, 1), mmu.read_bit(ioregs::TAC, 0)) {

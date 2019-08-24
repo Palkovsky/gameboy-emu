@@ -1,3 +1,5 @@
+#![allow(non_snake_case, non_camel_case_types)]
+
 use super::*;
 use super::super::{VRAM_ADDR};
 
@@ -46,7 +48,6 @@ fn get_color(num: u8) -> Color {
 }
 
 #[derive(Debug, PartialEq)]
-#[allow(non_camel_case_types)]
 pub enum GPUMode {
     HBLANK, VBLANK, OAM_SEARCH, LCD_TRANSFER,
 }

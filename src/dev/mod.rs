@@ -1,3 +1,6 @@
+pub mod cpu;
+pub use cpu::*;
+
 pub mod gpu;
 pub use gpu::*;
 
