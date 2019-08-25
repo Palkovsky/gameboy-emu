@@ -15,6 +15,7 @@ pub struct MMU<T: BankController> {
     pub ram: Vec<Byte>,
     pub hram: Vec<Byte>, 
     pub ioregs: IORegs,
+    booting: bool,
     /* Statistics */
     pub writes: u64,
     pub reads: u64,
@@ -30,6 +31,7 @@ impl <T: BankController>MMU<T> {
             ram: vec![0; RAM_BANK_SIZE],
             hram: vec![0; HRAM_SIZE],
             ioregs: IORegs::new(),
+            booting: false,
             writes: 0, reads: 0,
         }   
     }
@@ -55,7 +57,7 @@ impl <T: BankController>MMU<T> {
     pub fn write(&mut self, addr: Addr, byte: Byte) {
         self.writes += 1;
 
-        if addr < BOOSTRAP_SIZE as u16 && self.read(ioregs::BOOT_END) == 0 {
+        if addr < BOOSTRAP_SIZE as u16 && self.booting {
             panic!("Attempt to write to bootstrap ROM at 0x{:X}", addr)
         }
         
@@ -132,7 +134,7 @@ impl <T: BankController>MMU<T> {
     pub fn read(&mut self, addr: Addr) -> Byte {
         self.reads += 1;
 
-        if addr < BOOSTRAP_SIZE as u16 && self.read(ioregs::BOOT_END) == 0 {
+        if addr < BOOSTRAP_SIZE as u16 && self.booting {
             return self.bootstrap[addr as usize]
         }
 
@@ -195,4 +197,7 @@ impl <T: BankController>MMU<T> {
     fn read_hram(&mut self, _: Addr, offset: usize) -> Byte {
         self.hram[offset]
     }
+
+    pub fn booting(&mut self, value: bool) { self.booting = value; }
+    pub fn is_booting(&self) -> bool { self.booting }
 }

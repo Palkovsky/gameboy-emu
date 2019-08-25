@@ -6,13 +6,13 @@ mod timertest {
     use gameboy::*;
     use rand::Rng;
 
-    fn mock_state() -> State<mbc::MBC1> {
+    fn gen_state() -> State<mbc::MBC1> {
         State::new(mbc::MBC1::new(vec![0; 1 << 21]))
     }
 
     #[test]
     fn div_counter() {
-        let mut state = mock_state();
+        let mut state = gen_state();
         let mmu = &mut state.mmu;
         let timer = &mut state.timer; 
 
@@ -36,7 +36,7 @@ mod timertest {
 
     #[test]
     fn tima_counter() {
-        let mut state = mock_state();
+        let mut state = gen_state();
         let mut rng = rand::thread_rng();
 
         let steps = [timer::STEPS_4096HZ, timer::STEPS_16384HZ, timer::STEPS_65536HZ, timer::STEPS_262144HZ];
@@ -71,7 +71,7 @@ mod timertest {
     // Expecting DIV to count anyway and TIMA to be stopped.
     #[test]
     fn timer_disabled() {
-        let mut state = mock_state();
+        let mut state = gen_state();
 
         state.safe_write(ioregs::TAC, 0b111);
         assert_eq!(Timer::STOPPED(&mut state.mmu), true);
@@ -94,7 +94,7 @@ mod timertest {
     // Expected behavior for internal clocks would be to set values with defaults.
     #[test]
     fn tima_runtime_updates() {
-        let mut state = mock_state();
+        let mut state = gen_state();
 
         state.safe_write(ioregs::TAC, 0b000);
         assert_eq!(Timer::STOPPED(&mut state.mmu), false);
@@ -119,7 +119,7 @@ mod timertest {
 
     #[test]
     fn div_runtime_updates() {
-        let mut state = mock_state();
+        let mut state = gen_state();
 
         assert_eq!(Timer::DIV(&mut state.mmu), 0);
 

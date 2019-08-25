@@ -11,13 +11,23 @@ pub struct Runtime<T: BankController> {
 
 impl <T: BankController>Runtime<T> {
     pub fn new(mapper: T) -> Self {
+        let mut state = State::new(mapper);
         let cpu = CPU::new();
-        let state = State::new(mapper);
+        
+        state.mmu.booting(true);
+        
         Self { cpu: cpu, state: state }
     }
 
     pub fn step(&mut self) {
+        // Detect end of boot sequence
+        if self.state.mmu.is_booting() && self.cpu.PC.val() >= 0x100 {
+            self.state.mmu.booting(false);
+        }
+
+        // Do next instruction cycle
         self.cpu.step(&mut self.state);
+        self.cpu.interrupts(&mut self.state);
     }
 }
 

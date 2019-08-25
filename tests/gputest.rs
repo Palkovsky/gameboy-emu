@@ -4,19 +4,19 @@ extern crate gameboy;
 mod gputest {
     use gameboy::*;
 
-    fn mock() -> (MMU<mbc::MBC1>, GPU) {
+    fn gen() -> (MMU<mbc::MBC1>, GPU) {
         let mut mmu = mem::MMU::new(mbc::MBC1::new(vec![0; 1 << 21]));
         let gpu = GPU::new(&mut mmu);
         (mmu, gpu)
     }
 
-    fn mock_state() -> State<mbc::MBC1> {
+    fn gen_state() -> State<mbc::MBC1> {
         State::new(mbc::MBC1::new(vec![0; 1 << 21]))
     }
 
     #[test]
     fn memory_restrictions() {
-        let mut state = mock_state();
+        let mut state = gen_state();
 
         // Should be in OAM_SEARCH now
         assert_eq!(GPU::MODE(&mut state.mmu), GPUMode::OAM_SEARCH);
@@ -44,7 +44,7 @@ mod gputest {
 
     #[test]
     fn vblank_interrupts() {
-        let (mut mmu, mut gpu) = mock();
+        let (mut mmu, mut gpu) = gen();
 
         // VBLANK INT shoul be reset
         assert!(mmu.read(ioregs::IF) & 1 == 0);
@@ -75,7 +75,7 @@ mod gputest {
 
     #[test]
     fn ly_updates() {
-        let (mut mmu, mut gpu) = mock();
+        let (mut mmu, mut gpu) = gen();
 
         // 10 frames
         for _ in 0..10 {
@@ -94,7 +94,7 @@ mod gputest {
 
     #[test]
     fn mode_changes() {
-        let (mut mmu, mut gpu) = mock();
+        let (mut mmu, mut gpu) = gen();
 
         // 10 frames
         for _ in 0..10 {            
@@ -122,7 +122,7 @@ mod gputest {
 
     #[test]
     fn register_updates() {
-        let (mut mmu, mut gpu) = mock();
+        let (mut mmu, mut gpu) = gen();
 
         mmu.write(ioregs::LCDC, 0b10010001);
         gpu.step(&mut mmu);
@@ -149,7 +149,7 @@ mod gputest {
 
     #[test]
     fn coincidence_flag() {
-        let mut state = mock_state();
+        let mut state = gen_state();
 
         // STAT interrupt shouldn't be set        
         assert!((state.mmu.read(ioregs::IF) & 2) == 0);
@@ -228,7 +228,7 @@ mod gputest {
 
     #[test]
     fn palette_updates() {
-        let (mut mmu, mut gpu) = mock();
+        let (mut mmu, mut gpu) = gen();
         
         mmu.write(ioregs::BGP, 0);
         mmu.write(ioregs::OBP_0, 0);
