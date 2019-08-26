@@ -9,6 +9,7 @@ pub use ioregs::*;
 
 pub type Addr = u16;
 pub type Byte = u8;
+pub type Word = u16;
 pub type MutMem<'a> = &'a mut [Byte];
 
 /*

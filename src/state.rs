@@ -69,12 +69,21 @@ impl <T: BankController>State<T> {
         }
     }
 
+    pub fn write_word(&mut self, addr: Addr, word: Word) {
+        self.safe_write(addr, (word & 0xFF) as u8);
+        self.safe_write(addr+1, (word >> 8) as u8);
+    }
+
     pub fn safe_read(&mut self, addr: Addr) -> Byte {
         if !self.is_addr_allowed(addr) { 
             println!("Tried reading from restricted memory at 0x{:x}", addr);  
             return 0xFF
         }
         self.mmu.read(addr)
+    }
+
+    pub fn read_word(&mut self, addr: Addr) -> Word {
+        self.safe_read(addr) as u16 + ((self.safe_read(addr+1) as u16) << 8)
     }
 
     fn is_addr_allowed(&mut self, addr: Addr) -> bool {

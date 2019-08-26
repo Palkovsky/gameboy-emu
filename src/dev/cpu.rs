@@ -30,8 +30,6 @@ fn word_split(val: u16) -> (u8, u8) {
     ((val >> 8) as u8, (val & 0xFF) as u8)
 }
 
-const ZP_ADDR: u16 = 0xFF00;
-
 // Predicates for carry flag check
 fn add_b_carry(op1: u8, op2: u8) -> bool { op1 as u16 + op2 as u16 > 0xFF }
 fn add_w_carry(op1: u16, op2: u16) -> bool { op1 as u32 + op2 as u32 > 0xFFFF }
@@ -50,11 +48,13 @@ fn safe_w_add(op1: u16, op2: u16) -> u16 { (Wrapping(op1) + Wrapping(op2)).0 }
 fn safe_b_sub(op1: u8, op2: u8) -> u8 { (Wrapping(op1) - Wrapping(op2)).0 }
 fn safe_w_sub(op1: u16, op2: u16) -> u16 { (Wrapping(op1) - Wrapping(op2)).0 }
 
+pub const ZP_ADDR: u16 = 0xFF00;
+
 /*
  * Decoder for Gameboy CPU (LR35902) instruction set 
  */
 fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
-    let nibbles = ((op >> 4) & 0xF, op & 0xF);
+    let nibbles = (op >> 4, op & 0xF);
     
     let (mnemo, size, f): (&str, u8, Box<InstructionHandler<T>>) = match nibbles {
         /* Misc/Control instructions */
@@ -190,9 +190,9 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         // To A from ($FF00 + a8)
         (0xF, 0x0) => ("LDH A, (a8)", 2, Box::new(|cpu, s, op1, _| { cpu.A = s.safe_read(ZP_ADDR + op1 as u16); 3 })),
         // To ($FF00 + C) from A
-        (0xE, 0x2) => ("LD (C), A", 2, Box::new(|cpu, s, _, _| { s.safe_write(ZP_ADDR + cpu.BC.low() as u16, cpu.A); 2 })),
+        (0xE, 0x2) => ("LD (C), A", 1, Box::new(|cpu, s, _, _| { s.safe_write(ZP_ADDR + cpu.BC.low() as u16, cpu.A); 2 })),
         // To A from ($FF00 + C)
-        (0xF, 0x2) => ("LD A, (C)", 2, Box::new(|cpu, s, _, _| { cpu.A = s.safe_read(ZP_ADDR + cpu.BC.low() as u16); 2 })),
+        (0xF, 0x2) => ("LD A, (C)", 1, Box::new(|cpu, s, _, _| { cpu.A = s.safe_read(ZP_ADDR + cpu.BC.low() as u16); 2 })),
         // To (a16) from A
         (0xE, 0xA) => ("LD (a16), A", 3, Box::new(|cpu, s, op1, op2| { s.safe_write(word(op2, op1), cpu.A); 4 })),
         // To A from (a16)
@@ -210,8 +210,7 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         // To (a16) from SP
         (0x0, 0x8) => ("LD (a16), SP", 3, Box::new(|cpu, s, op1, op2| { 
             let addr = word(op2, op1);
-            s.safe_write(addr, (cpu.SP & 0xFF) as u8);
-            s.safe_write(addr + 1, (cpu.SP >> 8) as u8);
+            s.write_word(addr, cpu.SP);
             5 
         })),
         // Value of SP+r8 to HL
@@ -347,12 +346,16 @@ impl CPU {
 
         // No instruction longer than 3 bytes on this CPU
         let op = state.safe_read(pc);
-        let Instruction { size, handler: mut f, ..} = decode(op)
+        println!("Fetched 0x{:x} from 0x{:x}", op, pc);
+
+        let Instruction { size, handler: mut f, mnemo } = decode(op)
             .unwrap_or_else(|| panic!("Unrecognized OPCODE 0x{:x} at 0x{:x}. {:?}", op, pc, self));
         let argc = size - 1;
 
         let op1 = if argc >= 1 { state.safe_read(pc+1) } else { 0 };
         let op2 = if argc >= 2 { state.safe_read(pc+2) } else { 0 };
+
+        println!("Executing '{}' with size {}.", mnemo, size);
         let cycles = f(self, state, op1, op2) as u64;
         
         self.PC.set(self.PC.val() + size as u16);
@@ -423,14 +426,13 @@ impl CPU {
     }
 
     fn push_u16(&mut self, state: &mut State<impl BankController>, val: u16) {
-        state.safe_write(self.SP, (val >> 8) as u8); // Higher byte first
-        state.safe_write(self.SP - 1, (val & 0xFF) as u8); // Then lower
         self.SP -= 2;
+        state.write_word(self.SP, val);
     }
 
     fn pop_u16(&mut self, state: &mut State<impl BankController>) -> u16 {
-        let value = (state.safe_read(self.SP + 1) as u16) + (state.safe_read(self.SP + 2) as u16) << 8;
+        let val = state.read_word(self.SP);
         self.SP += 2;
-        value
+        val
     }
 }
