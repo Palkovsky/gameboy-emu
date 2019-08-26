@@ -2,15 +2,14 @@
 
 use super::*;
 use std::fmt;
-use std::rc::Rc;
-use std::cell::RefCell;
+use std::num::Wrapping;
 
 /* InstructionHandler takes CPU reference for register updates and 2 instruction operands as arguments. 
  * When instruction length is less than 3 the redundant bytes should be ignored. 
  * Handler returns number of machine cycles consumed. Hardcoding cycles wouldn't, because 
  * conditional jumps/calls take varying number of cycles.
  */
-type InstructionHandler<T: BankController> = FnMut(&mut CPU, &mut State<T>, u8, u8) -> u8;
+type InstructionHandler<T> = FnMut(&mut CPU, &mut State<T>, u8, u8) -> u8;
 
 struct Instruction<'a, T: BankController> {
     mnemo: &'a str,
@@ -22,6 +21,34 @@ impl <'a, T: BankController>Instruction<'a, T> {
         Self { mnemo: mnemo, size: size, handler: handler, }
     }
 }
+
+// Retruns word from two bytes
+fn word(upper: u8, lower: u8) -> u16 {
+    ((upper as u16) << 8) + (lower as u16)
+}
+fn word_split(val: u16) -> (u8, u8) {
+    ((val >> 8) as u8, (val & 0xFF) as u8)
+}
+
+const ZP_ADDR: u16 = 0xFF00;
+
+// Predicates for carry flag check
+fn add_b_carry(op1: u8, op2: u8) -> bool { op1 as u16 + op2 as u16 > 0xFF }
+fn add_w_carry(op1: u16, op2: u16) -> bool { op1 as u32 + op2 as u32 > 0xFFFF }
+fn sub_b_carry(op1: u8, op2: u8) -> bool { op1 < op2 }
+fn sub_w_carry(op1: u16, op2: u16) -> bool { op1 < op2 }
+
+// Predicates for half carry flag check
+fn add_b_hcarry(op1: u8, op2: u8) -> bool { ((op1 & 0xF) + (op2 & 0xF)) & 0x10 == 0x10 }
+fn add_w_hcarry(op1: u16, op2: u16) -> bool { ((op1 & 0xFFF) + (op2 & 0xFFF)) & 0x1000 == 0x1000 }
+fn sub_b_hcarry(op1: u8, op2: u8) -> bool { (op1 & 0xF) < (op2 & 0xF) }
+fn sub_w_hcarry(op1: u16, op2: u16) -> bool { (op1 & 0xFFF) < (op2 & 0xFFF) }
+
+// Safe add/sub to prevent runtime overflow errors
+fn safe_b_add(op1: u8, op2: u8) -> u8 { (Wrapping(op1) + Wrapping(op2)).0 }
+fn safe_w_add(op1: u16, op2: u16) -> u16 { (Wrapping(op1) + Wrapping(op2)).0 }
+fn safe_b_sub(op1: u8, op2: u8) -> u8 { (Wrapping(op1) - Wrapping(op2)).0 }
+fn safe_w_sub(op1: u16, op2: u16) -> u16 { (Wrapping(op1) - Wrapping(op2)).0 }
 
 /*
  * Decoder for Gameboy CPU (LR35902) instruction set 
@@ -117,12 +144,12 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         // To (HL) from A with post-increment
         (0x2, 0x2) => ("LD (HL+), A",   1, Box::new(|cpu, s, _, _| { 
             s.safe_write(cpu.HL.val(), cpu.A); 
-            cpu.HL.set(cpu.HL.val() + 1); // Wrapping!
+            cpu.HL.set(safe_w_add(cpu.HL.val(), 1));
             2 
         })),
         // To (HL) from A with pre-decrement
         (0x3, 0x2) => ("LD (HL-), A",    1, Box::new(|cpu, s, _, _| { 
-            cpu.HL.set(cpu.HL.val() - 1); // Wrapping!
+            cpu.HL.set(safe_w_sub(cpu.HL.val(), 1));
             s.safe_write(cpu.HL.val(), cpu.A); 
             2 
         })),
@@ -133,12 +160,12 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         // To A from (HL) with post-increment
         (0x2, 0xA) => ("LD A, (HL+)",   1, Box::new(|cpu, s, _, _| { 
             cpu.A = s.safe_read(cpu.HL.val()); 
-            cpu.HL.set(cpu.HL.val() + 1); // Wrapping!
+            cpu.HL.set(safe_w_add(cpu.HL.val(), 1));
             2 
         })),
         // To A from (HL) with pre-decrement
         (0x3, 0xA) => ("LD A, (HL-)",   1, Box::new(|cpu, s, _, _| { 
-            cpu.HL.set(cpu.HL.val() - 1); // Wrapping!
+            cpu.HL.set(safe_w_sub(cpu.HL.val(), 1));
             cpu.A = s.safe_read(cpu.HL.val()); 
             2 
         })),
@@ -157,14 +184,69 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         // To L from d8
         (0x2, 0xE) => ("LD L, d8",    2, Box::new(|cpu, _, op1, _| { cpu.HL.set_low(op1); 2 })),
         // To A from d8
-        (0x3, 0xE) => ("LD A, d8",    2, Box::new(|cpu, s, op1, _| { cpu.A = op1; 2})),
+        (0x3, 0xE) => ("LD A, d8",    2, Box::new(|cpu, _, op1, _| { cpu.A = op1; 2})),
+        // To ($FF00 + a8) from A
+        (0xE, 0x0) => ("LDH (a8), A", 2, Box::new(|cpu, s, op1, _| { s.safe_write(ZP_ADDR + op1 as u16, cpu.A); 3 })),
+        // To A from ($FF00 + a8)
+        (0xF, 0x0) => ("LDH A, (a8)", 2, Box::new(|cpu, s, op1, _| { cpu.A = s.safe_read(ZP_ADDR + op1 as u16); 3 })),
+        // To ($FF00 + C) from A
+        (0xE, 0x2) => ("LD (C), A", 2, Box::new(|cpu, s, _, _| { s.safe_write(ZP_ADDR + cpu.BC.low() as u16, cpu.A); 2 })),
+        // To A from ($FF00 + C)
+        (0xF, 0x2) => ("LD A, (C)", 2, Box::new(|cpu, s, _, _| { cpu.A = s.safe_read(ZP_ADDR + cpu.BC.low() as u16); 2 })),
+        // To (a16) from A
+        (0xE, 0xA) => ("LD (a16), A", 3, Box::new(|cpu, s, op1, op2| { s.safe_write(word(op2, op1), cpu.A); 4 })),
+        // To A from (a16)
+        (0xF, 0xA) => ("LD A, (a16)", 3, Box::new(|cpu, s, op1, op2| { cpu.A = s.safe_read(word(op2, op1)); 4 })),
+
+        /* 16bit load/store/move instructions */
+        // To BC from d16
+        (0x0, 0x1) => ("LD BC, d16", 3, Box::new(|cpu, _, op1, op2| { cpu.BC.set(word(op2, op1)); 3 })),
+        // To DE from d16
+        (0x1, 0x1) => ("LD DE, d16", 3, Box::new(|cpu, _, op1, op2| { cpu.DE.set(word(op2, op1)); 3 })),
+        // TO HL from d16
+        (0x2, 0x1) => ("LD HL, d16", 3, Box::new(|cpu, _, op1, op2| { cpu.HL.set(word(op2, op1)); 3 })),
+        // To SP from d16
+        (0x3, 0x1) => ("LD SP, d16", 3, Box::new(|cpu, _, op1, op2| { cpu.SP = word(op2, op1); 3 })),
+        // To (a16) from SP
+        (0x0, 0x8) => ("LD (a16), SP", 3, Box::new(|cpu, s, op1, op2| { 
+            let addr = word(op2, op1);
+            s.safe_write(addr, (cpu.SP & 0xFF) as u8);
+            s.safe_write(addr + 1, (cpu.SP >> 8) as u8);
+            5 
+        })),
+        // Value of SP+r8 to HL
+        (0xF, 0x8) => ("LD HL, SP+r8", 2, Box::new(|cpu, _, op1, _| {
+            cpu.C = add_w_carry(cpu.SP, op1 as u16);
+            cpu.H = add_w_hcarry(cpu.SP, op1 as u16);
+            cpu.Z = false;
+            cpu.N = false;
+            cpu.HL.set(safe_w_add(cpu.SP, op1 as u16));
+            3
+        })),
+        // To SP from HL
+        (0xF, 0x9) => ("LD SP, HL", 1, Box::new(|cpu, _, _, _| { cpu.SP = cpu.HL.val(); 2 })),
+       
+       /* STACK STUFF */
+        (0xC, 0x5) => ("PUSH BC", 1, Box::new(|cpu, s, _, _| { cpu.push_u16(s, cpu.BC.val()); 4 })),
+        (0xD, 0x5) => ("PUSH DE", 1, Box::new(|cpu, s, _, _| { cpu.push_u16(s, cpu.DE.val()); 4 })),
+        (0xE, 0x5) => ("PUSH HL", 1, Box::new(|cpu, s, _, _| { cpu.push_u16(s, cpu.HL.val()); 4 })),
+        (0xF, 0x5) => ("PUSH AF", 1, Box::new(|cpu, s, _, _| { cpu.push_u16(s, word(cpu.A, cpu.F())); 4 })),
+        (0xC, 0x1) => ("POP BC",  1, Box::new(|cpu, s, _, _| { let val = cpu.pop_u16(s); cpu.BC.set(val); 3 })),
+        (0xD, 0x1) => ("POP DE",  1, Box::new(|cpu, s, _, _| { let val = cpu.pop_u16(s); cpu.DE.set(val); 3 })),
+        (0xE, 0x1) => ("POP HL",  1, Box::new(|cpu, s, _, _| { let val = cpu.pop_u16(s); cpu.HL.set(val); 3 })),
+        (0xF, 0x1) => ("POP AF",  1, Box::new(|cpu, s, _, _| { 
+            let (a, f) = word_split(cpu.pop_u16(s));
+            cpu.set_F(f);
+            cpu.A = a;
+            3 
+        })),
+
 
         _ => return None,
     };
         
     Some(Instruction::new(mnemo, size, f))
 }
-
 
 #[repr(C)]
 pub union Reg {
@@ -323,4 +405,32 @@ impl CPU {
     // Some utility methods
     fn read_HL<T: BankController>(&self, state: &mut State<T>) -> u8 { state.safe_read(self.HL.val()) }
     fn write_HL<T: BankController>(&self, state: &mut State<T>, val: u8) { state.safe_write(self.HL.val(), val) }
+
+    pub fn F(&self) -> u8 {
+        let mut f = 0u8;
+        f |= if self.Z { 1 << 7 } else { 0 };
+        f |= if self.N { 1 << 6 } else { 0 };
+        f |= if self.H { 1 << 5 } else { 0 };
+        f |= if self.C { 1 << 4 } else { 0 };
+        f
+    }
+
+    pub fn set_F(&mut self, val: u8) {
+        self.Z = val & (1 << 7) != 0;
+        self.N = val & (1 << 6) != 0;
+        self.H = val & (1 << 5) != 0;
+        self.C = val & (1 << 4) != 0;
+    }
+
+    fn push_u16(&mut self, state: &mut State<impl BankController>, val: u16) {
+        state.safe_write(self.SP, (val >> 8) as u8); // Higher byte first
+        state.safe_write(self.SP - 1, (val & 0xFF) as u8); // Then lower
+        self.SP -= 2;
+    }
+
+    fn pop_u16(&mut self, state: &mut State<impl BankController>) -> u16 {
+        let value = (state.safe_read(self.SP + 1) as u16) + (state.safe_read(self.SP + 2) as u16) << 8;
+        self.SP += 2;
+        value
+    }
 }
