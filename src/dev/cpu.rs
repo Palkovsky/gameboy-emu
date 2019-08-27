@@ -34,20 +34,33 @@ fn word_split(val: u16) -> (u8, u8) {
 fn add_b_carry(op1: u8, op2: u8) -> bool { op1 as u16 + op2 as u16 > 0xFF }
 fn add_w_carry(op1: u16, op2: u16) -> bool { op1 as u32 + op2 as u32 > 0xFFFF }
 fn sub_b_carry(op1: u8, op2: u8) -> bool { op1 < op2 }
-fn sub_w_carry(op1: u16, op2: u16) -> bool { op1 < op2 }
+// ex. SP+r8. It checks overflow on 7th bit
+fn add_signed_carry(op1: u16, op2: u8) -> bool {
+    let r8 = op2 as i8;
+    if r8 >= 0 { (op1 & 0xFF) + r8 as u16 > 0xFF }
+    else       { (op1 as i16 & 0xFF) <= ((op1 as i16 + r8 as i16) & 0xFF) }
+}
 
 // Predicates for half carry flag check
-fn add_b_hcarry(op1: u8, op2: u8) -> bool { ((op1 & 0xF) + (op2 & 0xF)) & 0x10 == 0x10 }
-fn add_w_hcarry(op1: u16, op2: u16) -> bool { ((op1 & 0xFFF) + (op2 & 0xFFF)) & 0x1000 == 0x1000 }
+fn add_b_hcarry(op1: u8, op2: u8) -> bool { ((op1 & 0xF) + (op2 & 0xF)) > 0xF }
+fn add_w_hcarry(op1: u16, op2: u16) -> bool { ((op1 & 0xFFF) + (op2 & 0xFFF)) > 0xFFF }
 fn sub_b_hcarry(op1: u8, op2: u8) -> bool { (op1 & 0xF) < (op2 & 0xF) }
-fn sub_w_hcarry(op1: u16, op2: u16) -> bool { (op1 & 0xFFF) < (op2 & 0xFFF) }
+fn add_signed_hcarry(op1: u16, op2: u8) -> bool {
+    let r8 = op2 as i8;
+    if r8 >= 0 { (op1 & 0xF) + (r8 as u16 & 0xF) > 0xF }
+    else       { (op1 as i16 & 0xF) <= ((op1 as i16 + r8 as i16) & 0xF) }
+}
 
-// Safe add/sub to prevent runtime overflow errors
+// Safe add/sub to prevent runtime overflow errorsaaaa
 fn safe_b_add(op1: u8, op2: u8) -> u8 { (Wrapping(op1) + Wrapping(op2)).0 }
 fn safe_w_add(op1: u16, op2: u16) -> u16 { (Wrapping(op1) + Wrapping(op2)).0 }
 fn safe_b_sub(op1: u8, op2: u8) -> u8 { (Wrapping(op1) - Wrapping(op2)).0 }
 fn safe_w_sub(op1: u16, op2: u16) -> u16 { (Wrapping(op1) - Wrapping(op2)).0 }
-
+fn safe_signed_add(op1: u16, op2: u8) -> u16 {
+    let s = op2 as i8;
+    if s >= 0 { (Wrapping(op1) + Wrapping(op2 as u16)).0 } 
+    else { (Wrapping(op1) - Wrapping((-s) as u16)).0 }
+}
 pub const ZP_ADDR: u16 = 0xFF00;
 const B_IDX: u8 = 0;
 const C_IDX: u8 = 1;
@@ -227,8 +240,8 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         })),
         // Value of SP+r8 to HL
         0xF8 => ("LD HL, SP+r8", 2, Box::new(|cpu, _, _, op1, _| {
-            cpu.C = add_w_carry(cpu.SP, op1 as u16);
-            cpu.H = add_w_hcarry(cpu.SP, op1 as u16);
+            cpu.H = add_signed_hcarry(cpu.SP, op1);
+            cpu.C = add_signed_carry(cpu.SP, op1);
             cpu.Z = false;
             cpu.N = false;
             cpu.HL.set(safe_w_add(cpu.SP, op1 as u16));
@@ -457,6 +470,174 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
             cpu.Z = cpu.A == 0;
             if idx == ADDR_HL_IDX { 2 } else { 1 }
         })),
+        
+        /* 16 bit ALU */
+        // 16bit increments
+        0x03 => ("INC BC", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_add(cpu.BC.val(), 1)); 2 })),
+        0x13 => ("INC DE", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_add(cpu.DE.val(), 1)); 2 })),
+        0x23 => ("INC HL", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_add(cpu.HL.val(), 1)); 2 })),
+        0x33 => ("INC SP", 1, Box::new(|cpu, _, _, _, _| { cpu.SP = safe_w_add(cpu.SP, 1); 2 })),
+        // 16 bit decrements
+        0x0B => ("DEC BC", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_sub(cpu.BC.val(), 1)); 2 })),
+        0x1B => ("DEC DE", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_sub(cpu.DE.val(), 1)); 2 })),
+        0x2B => ("DEC HL", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_sub(cpu.HL.val(), 1)); 2 })),
+        0x3B => ("DEC SP", 1, Box::new(|cpu, _, _, _, _| { cpu.SP = safe_w_sub(cpu.SP, 1); 2 })),
+        // 16 bit adds
+        0x09 => ("ADD HL, BC", 1, Box::new(|cpu, _, _, _, _| {
+            let (r1, r2) = (&mut cpu.HL, &mut cpu.BC);
+            cpu.N = false; cpu.H = add_w_hcarry(r1.val(), r2.val()); cpu.C = add_w_carry(r1.val(), r2.val());
+            r1.set(safe_w_add(r1.val(), r2.val()));
+            2 
+        })),
+        0x19 => ("ADD HL, DE", 1, Box::new(|cpu, _, _, _, _| {
+            let (r1, r2) = (&mut cpu.HL, &mut cpu.DE);
+            cpu.N = false; cpu.H = add_w_hcarry(r1.val(), r2.val()); cpu.C = add_w_carry(r1.val(), r2.val());
+            r1.set(safe_w_add(r1.val(), r2.val()));
+            2 
+        })),
+        0x29 => ("ADD HL, HL", 1, Box::new(|cpu, _, _, _, _| {
+            let r = &mut cpu.HL;
+            cpu.N = false; cpu.H = add_w_hcarry(r.val(), r.val()); cpu.C = add_w_carry(r.val(), r.val());
+            r.set(safe_w_add(r.val(), r.val()));
+            2 
+        })),
+        0x39 => ("ADD HL, SP", 1, Box::new(|cpu, _, _, _, _| {
+            let (r, sp) = (&mut cpu.HL, cpu.SP);
+            cpu.N = false; cpu.H = add_w_hcarry(r.val(), sp); cpu.C = add_w_carry(r.val(), sp);
+            r.set(safe_w_add(r.val(), sp));
+            2 
+        })),
+        // Add SP, r8
+        0xE8 => ("ADD SP, r8", 2, Box::new(|cpu, _, _, op1, _| {
+            cpu.H = add_signed_hcarry(cpu.SP, op1);
+            cpu.C = add_signed_carry(cpu.SP, op1);
+            cpu.SP = safe_signed_add(cpu.SP, op1);
+            cpu.N = false; cpu.Z = false;
+            4
+        })),
+
+        /* 8 BIT ROTATIONS/SHIFTS and BIT INSTRUCTIONs */
+        // Rotate A left
+        0x07 => ("RLCA", 1, Box::new(|cpu, _, _, _, _| {
+            cpu.N = false; cpu.Z = false; cpu.H = false;
+            cpu.C = (cpu.A & 0x80) != 0;
+            cpu.A = safe_b_add((Wrapping(cpu.A) << 1).0, if cpu.C { 1 } else { 0 }); 
+            1
+        })),
+        // Rotate A left through Carry flag.
+        0x17 => ("RLA", 1, Box::new(|cpu, _, _, _, _| {
+            cpu.N = false; cpu.Z = false; cpu.H = false;
+            let new_carry = (cpu.A & 0x80) != 0;
+            cpu.A = safe_b_add((Wrapping(cpu.A) << 1).0, if cpu.C { 1 } else { 0 }); 
+            cpu.C = new_carry;
+            1
+        })),
+        // Rotate A right
+        0x0F => ("RRCA", 1, Box::new(|cpu, _, _, _, _| {
+            cpu.N = false; cpu.Z = false; cpu.H = false;
+            cpu.C = (cpu.A & 1) != 0;
+            cpu.A = safe_b_add((Wrapping(cpu.A) >> 1).0, if cpu.C { 1 << 7 } else { 0 });
+            1
+        })),
+        // Rotate A right through Carry flag.
+        0x1F => ("RRA", 1, Box::new(|cpu, _, _, _, _| {
+            cpu.N = false; cpu.Z = false; cpu.H = false;
+            let new_carry = (cpu.A & 1) != 0;
+            cpu.A = safe_b_add((Wrapping(cpu.A) >> 1).0, if cpu.C { 1 << 7 } else { 0 });
+            cpu.C = new_carry;
+            1
+        })),
+
+        /* JUMPS */
+        0xC2 => ("JP NZ, a16", 3, Box::new(|cpu, _, _, op1, op2|{
+            if cpu.Z { return 3 };
+            cpu.PC.set(word(op2, op1)); 4
+        })),
+        0xD2 => ("JP NC, a16", 3, Box::new(|cpu, _, _, op1, op2|{
+            if cpu.C { return 3 };
+            cpu.PC.set(word(op2, op1)); 4
+        })),
+        0xC3 => ("JP a16", 3, Box::new(|cpu, _, _, op1, op2|{
+            cpu.PC.set(word(op2, op1)); 4
+        })),
+        0xE9 => ("JP (HL)", 1, Box::new(|cpu, _, _, _, _|{
+            cpu.PC.set(cpu.HL.val()); 1
+        })),
+        0xCA => ("JP Z, a16", 3, Box::new(|cpu, _, _, op1, op2|{
+            if !cpu.Z { return 3 };
+            cpu.PC.set(word(op2, op1)); 4
+        })),
+        0xDA => ("JP C, a16", 3, Box::new(|cpu, _, _, op1, op2|{
+            if !cpu.C { return 3 };
+            cpu.PC.set(word(op2, op1)); 4
+        })),
+
+        /* Relative JUMPS */
+        0x20 => ("JR NZ, r8", 2, Box::new(|cpu, _, _, op1, _| {
+            if cpu.Z { return 2 };
+            cpu.PC.set(safe_signed_add(cpu.PC.val(), op1)); 3
+        })),
+        0x30 => ("JR NC, r8", 2, Box::new(|cpu, _, _, op1, _| {
+            if cpu.C { return 2 };
+            cpu.PC.set(safe_signed_add(cpu.PC.val(), op1)); 3
+        })),
+        0x18 => ("JR r8", 2, Box::new(|cpu, _, _, op1, _| {
+            cpu.PC.set(safe_signed_add(cpu.PC.val(), op1)); 3
+        })),
+        0x28 => ("JR Z, r8", 2, Box::new(|cpu, _, _, op1, _| {
+            if !cpu.Z { return 2 };
+            cpu.PC.set(safe_signed_add(cpu.PC.val(), op1)); 3
+        })),
+        0x38 => ("JR C, r8", 2, Box::new(|cpu, _, _, op1, _| {
+            if !cpu.C { return 2 };
+            cpu.PC.set(safe_signed_add(cpu.PC.val(), op1)); 3
+        })),
+
+        /* RESTARTS */
+        0xC7 => ("RST 00", 1, Box::new(|cpu, s, _, _, _| { cpu.call(s, 0x0000); 4 })),
+        0xCF => ("RST 08", 1, Box::new(|cpu, s, _, _, _| { cpu.call(s, 0x0008); 4 })),
+        0xD7 => ("RST 10", 1, Box::new(|cpu, s, _, _, _| { cpu.call(s, 0x0010); 4 })),
+        0xDF => ("RST 18", 1, Box::new(|cpu, s, _, _, _| { cpu.call(s, 0x0018); 4 })),
+        0xE7 => ("RST 20", 1, Box::new(|cpu, s, _, _, _| { cpu.call(s, 0x0020); 4 })),
+        0xEF => ("RST 28", 1, Box::new(|cpu, s, _, _, _| { cpu.call(s, 0x0028); 4 })),
+        0xF7 => ("RST 30", 1, Box::new(|cpu, s, _, _, _| { cpu.call(s, 0x0030); 4 })),
+        0xFF => ("RST 38", 1, Box::new(|cpu, s, _, _, _| { cpu.call(s, 0x0038); 4 })),
+
+        /* CALLS */
+        0xCD => ("CALL a16", 3, Box::new(|cpu, s, _, op1, op2| { cpu.call(s, word(op2, op1)); 6 })),
+        0xC4 => ("CALL NZ, a16", 3, Box::new(|cpu, s, _, op1, op2| { 
+            if cpu.Z { return 3 }; cpu.call(s, word(op2, op1)); 6 
+        })),
+        0xD4 => ("CALL NC, a16", 3, Box::new(|cpu, s, _, op1, op2| { 
+            if cpu.C { return 3 }; cpu.call(s, word(op2, op1)); 6 
+        })),
+        0xCC => ("CALL Z, a16", 3, Box::new(|cpu, s, _, op1, op2| { 
+            if !cpu.Z { return 3 }; cpu.call(s, word(op2, op1)); 6 
+        })),
+        0xDC => ("CALL C, a16", 3, Box::new(|cpu, s, _, op1, op2| { 
+            if !cpu.C { return 3 }; cpu.call(s, word(op2, op1)); 6 
+        })),
+
+        /* RETURNS */
+        0xC9 => ("RET", 1, Box::new(|cpu, s, _, _, _| {
+            cpu.ret(s); 4
+        })),
+        0xD9 => ("RETI", 1, Box::new(|cpu, s, _, _, _| {
+            cpu.ret(s); cpu.IME = true; 4
+        })),
+        0xC0 => ("RET NZ", 1, Box::new(|cpu, s, _, _, _| {
+            if cpu.Z { return 2 }; cpu.ret(s); 5
+        })),
+        0xD0 => ("RET NC", 1, Box::new(|cpu, s, _, _, _| {
+            if cpu.C { return 2 }; cpu.ret(s); 5
+        })),
+        0xC8 => ("RET Z", 1, Box::new(|cpu, s, _, _, _| {
+            if !cpu.Z { return 2 }; cpu.ret(s); 5
+        })),
+        0xD8 => ("RET C", 1, Box::new(|cpu, s, _, _, _| {
+            if !cpu.C { return 2 }; cpu.ret(s); 5
+        })),
+
         _ => return None,
     };
         
@@ -691,6 +872,16 @@ impl CPU {
         self.N = val & (1 << 6) != 0;
         self.H = val & (1 << 5) != 0;
         self.C = val & (1 << 4) != 0;
+    }
+
+    fn call(&mut self, state: &mut State<impl BankController>, addr: u16) { 
+        self.push_u16(state, self.PC.val());
+        self.PC.set(addr);
+    }
+
+    fn ret(&mut self, state: &mut State<impl BankController>) {
+        let addr = self.pop_u16(state);
+        self.PC.set(addr);
     }
 
     fn push_u16(&mut self, state: &mut State<impl BankController>, val: u16) {

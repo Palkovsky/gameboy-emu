@@ -23,6 +23,37 @@ mod cputest {
     }
 
     #[test]
+    fn rotations() {
+        let mut runtime = gen_with_code(vec![
+            0x3E, 0b10100011, // LD A,0b10100011
+            0x07, // RLCA
+            0x17, // RLA
+            0x0F, // RRCA
+            0x1F, // RRA
+        ]);
+        runtime.cpu.C = false;
+
+        runtime.step();
+        assert_eq!(runtime.cpu.A, 0b10100011);
+
+        runtime.step();
+        assert_eq!(runtime.cpu.A, 0b01000111);
+        assert_eq!(runtime.cpu.C, true);
+
+        runtime.step();
+        assert_eq!(runtime.cpu.A, 0b10001111);
+        assert_eq!(runtime.cpu.C, false);
+        
+        runtime.step();
+        assert_eq!(runtime.cpu.A, 0b11000111);
+        assert_eq!(runtime.cpu.C, true);
+
+        runtime.step();
+        assert_eq!(runtime.cpu.A, 0b11100011);
+        assert_eq!(runtime.cpu.C, true);
+    }
+
+    #[test]
     fn stack_push_pop() {
         let mut runtime = gen_with_code(vec![
             0xD5, // PUSH DE
