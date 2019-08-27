@@ -7,6 +7,7 @@ pub use dev::*;
 pub mod state;
 pub use state::*;
 
+use std::io::prelude::*;
 use std::time::{Instant};
 use std::num::Wrapping;
 use std::{env, fs, io};
