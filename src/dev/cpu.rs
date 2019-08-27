@@ -451,23 +451,33 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
             2
         })),
         // Increments regsister
-        0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => ("INC reg", 1, Box::new(|cpu, _, op, _, _| {
+        0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1C | 0x2C | 0x3C => ("INC reg", 1, Box::new(|cpu, s, op, _, _| {
             let (n1, n2) = (op >> 4, op & 0xF);
             let idx = 2*n1 + {if n2 == 0xC { 1 } else { 0 }};
+            let val = cpu.reg(s, idx);
+
             cpu.N = false;
-            cpu.H = add_b_hcarry(cpu.A, 1);
-            cpu.A = safe_b_add(cpu.A, 1);
-            cpu.Z = cpu.A == 0;
+            cpu.H = add_b_hcarry(val, 1);
+            
+            let val = safe_b_add(val, 1);
+            cpu.Z = val == 0;
+            cpu.reg_set(s, idx, val);
+            
             if idx == ADDR_HL_IDX { 2 } else { 1 }
         })),
         // Decrements register
-        0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => ("DEC reg", 1, Box::new(|cpu, _, op, _, _| {
+        0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => ("DEC reg", 1, Box::new(|cpu, s, op, _, _| {
             let (n1, n2) = (op >> 4, op & 0xF);
             let idx = 2*n1 + {if n2 == 0xC { 1 } else { 0 }};
+            let val = cpu.reg(s, idx);
+
             cpu.N = true;
             cpu.H = sub_b_hcarry(cpu.A, 1);
-            cpu.A = safe_b_sub(cpu.A, 1);
-            cpu.Z = cpu.A == 0;
+
+            let val = safe_b_sub(val, 1);
+            cpu.reg_set(s, idx, val);
+            cpu.Z = val == 0;
+
             if idx == ADDR_HL_IDX { 2 } else { 1 }
         })),
         
@@ -774,9 +784,8 @@ impl CPU {
 
         println!("Executing '{}' with size {}.", mnemo, size);
         
-        let cycles = f(self, state, op, op1, op2) as u64;
-        self.PC.set(self.PC.val() + size as u16);
-        cycles
+        self.PC.set(safe_w_add(self.PC.val(), size as u16));
+        f(self, state, op, op1, op2) as u64;
     }
 
     // interrupts() will check for interrupt requests and pass control to appropriate ISR(Interrupt Service Routine)

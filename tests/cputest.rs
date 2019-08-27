@@ -23,6 +23,29 @@ mod cputest {
     }
 
     #[test]
+    fn simple_loop() {
+        let mut runtime = gen_with_code(vec![
+            0x3E, 0x00, // LD A, 0x00
+            0x3C, // INC A
+            0xC3, 0x02, 0x00, // JP 0x0002
+        ]);
+
+        runtime.step();
+        assert_eq!(runtime.cpu.PC.val(), 0x0002);
+        assert_eq!(runtime.cpu.A, 0x00);
+        
+        for i in 1..50 {
+            runtime.step();
+            assert_eq!(runtime.cpu.PC.val(), 0x0003);
+            assert_eq!(runtime.cpu.A, i);
+
+            runtime.step();
+            assert_eq!(runtime.cpu.PC.val(), 0x0002);
+            assert_eq!(runtime.cpu.A, i);
+        }
+    }
+
+    #[test]
     fn rotations() {
         let mut runtime = gen_with_code(vec![
             0x3E, 0b10100011, // LD A,0b10100011
