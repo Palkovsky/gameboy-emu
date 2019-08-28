@@ -582,7 +582,7 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
             if idx == ADDR_HL_IDX { 2 } else { 1 }
         })),
         // Compare with immediate
-        0xFE => ("CP A, reg", 2, Box::new(|cpu, _, _, val, _| {
+        0xFE => ("CP A, d8", 2, Box::new(|cpu, _, _, val, _| {
             cpu.N = true;
             cpu.H = sub_b_hcarry(cpu.A, val);
             cpu.C = sub_b_carry(cpu.A, val);
@@ -604,10 +604,10 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
             
             if idx == ADDR_HL_IDX { 2 } else { 1 }
         })),
-        // Decrements register
+        // Decrements register 0b00111101
         0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => ("DEC reg", 1, Box::new(|cpu, s, op, _, _| {
             let (n1, n2) = (op >> 4, op & 0xF);
-            let idx = 2*n1 + {if n2 == 0xC { 1 } else { 0 }};
+            let idx = 2*n1 + {if n2 == 0xD { 1 } else { 0 }};
             let val = cpu.reg(s, idx);
 
             cpu.N = true;
@@ -623,13 +623,13 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         /* 16 bit ALU */
         // 16bit increments
         0x03 => ("INC BC", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_add(cpu.BC.val(), 1)); 2 })),
-        0x13 => ("INC DE", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_add(cpu.DE.val(), 1)); 2 })),
-        0x23 => ("INC HL", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_add(cpu.HL.val(), 1)); 2 })),
+        0x13 => ("INC DE", 1, Box::new(|cpu, _, _, _, _| { cpu.DE.set(safe_w_add(cpu.DE.val(), 1)); 2 })),
+        0x23 => ("INC HL", 1, Box::new(|cpu, _, _, _, _| { cpu.HL.set(safe_w_add(cpu.HL.val(), 1)); 2 })),
         0x33 => ("INC SP", 1, Box::new(|cpu, _, _, _, _| { cpu.SP = safe_w_add(cpu.SP, 1); 2 })),
         // 16 bit decrements
         0x0B => ("DEC BC", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_sub(cpu.BC.val(), 1)); 2 })),
-        0x1B => ("DEC DE", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_sub(cpu.DE.val(), 1)); 2 })),
-        0x2B => ("DEC HL", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_sub(cpu.HL.val(), 1)); 2 })),
+        0x1B => ("DEC DE", 1, Box::new(|cpu, _, _, _, _| { cpu.DE.set(safe_w_sub(cpu.DE.val(), 1)); 2 })),
+        0x2B => ("DEC HL", 1, Box::new(|cpu, _, _, _, _| { cpu.HL.set(safe_w_sub(cpu.HL.val(), 1)); 2 })),
         0x3B => ("DEC SP", 1, Box::new(|cpu, _, _, _, _| { cpu.SP = safe_w_sub(cpu.SP, 1); 2 })),
         // 16 bit adds
         0x09 => ("ADD HL, BC", 1, Box::new(|cpu, _, _, _, _| {
@@ -889,9 +889,6 @@ impl CPU {
 
         let pc = self.PC.val();
         let op = state.safe_read(pc);
-
-        println!("----- PC: 0x{:X} -----", pc);
-        println!("Fetched 0x{:x} from 0x{:x}", op, pc);
     
         let Instruction { size, handler: mut f, mnemo } = decode(op)
             .unwrap_or_else(|| panic!("Unrecognized OPCODE 0x{:x} at 0x{:x}. {:?}", op, pc, self));
@@ -899,7 +896,9 @@ impl CPU {
         let op1 = if argc >= 1 { state.safe_read(pc+1) } else { 0 };
         let op2 = if argc >= 2 { state.safe_read(pc+2) } else { 0 };
 
-        println!("Executing '{}' with size {}.", mnemo, size);
+        // println!("PC: 0x{:X}, OP: 0x{:x}, INST: {}, HL: 0x{:x}, B: 0x{:x}, A: 0x{:x}", pc, op, mnemo, self.HL.val(), self.BC.up(), self.A);
+
+        // println!("Executing '{}' with size {}.", mnemo, size);
         self.PC.set(safe_w_add(self.PC.val(), size as u16));
         f(self, state, op, op1, op2) as u64
     }

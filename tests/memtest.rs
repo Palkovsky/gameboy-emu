@@ -19,14 +19,14 @@ mod memtest {
         #[should_panic]
         fn write_to_bootstrap() {
             let mut mmu = gen_mmu(SZ_2MB);
-            mmu.booting(true);
+            mmu.write(BOOT, 0);
             mmu.write(0x0000, 0x21);
         }
 
         #[test]
         fn map_unmap() {
             let mut mmu = gen_mmu(SZ_2MB);
-            mmu.booting(true);
+            mmu.write(BOOT, 0);
 
             // Check first bytes of bootsrap
             assert_eq!(mmu.read(0), 0x31);
@@ -35,7 +35,7 @@ mod memtest {
             assert_eq!(mmu.read(0xA0), 0x05);
             assert_eq!(mmu.read(255), 0x50);
 
-            mmu.booting(false);
+            mmu.write(BOOT, 1);
             assert_eq!(mmu.read(0), 0);
             assert_eq!(mmu.read(1), 0);
             assert_eq!(mmu.read(16), 0);

@@ -7,27 +7,37 @@ use super::*;
 pub struct Runtime<T: BankController> {
     pub cpu: CPU,
     pub state: State<T>,
+
+    cpu_cycles: u64,
+    gpu_cycles: u64,
+    timer_cycles: u64,
 }
 
 impl <T: BankController>Runtime<T> {
     pub fn new(mapper: T) -> Self {
-        let mut state = State::new(mapper);
+        let state = State::new(mapper);
         let cpu = CPU::new();
-        
-        state.mmu.booting(true);
-        
-        Self { cpu: cpu, state: state }
+        Self { cpu: cpu, state: state, cpu_cycles: 0, gpu_cycles: 0, timer_cycles: 0 }
     }
 
     pub fn step(&mut self) {
-        // Detect end of boot sequence
-        if self.state.mmu.is_booting() && self.cpu.PC.val() >= 0x100 {
-            self.state.mmu.booting(false);
+        self.cpu_cycles += self.cpu.step(&mut self.state);
+        if self.cpu.PC.val() >= 0x100 { panic!("End of bootrom!"); }
+        self.cpu_cycles += self.cpu.interrupts(&mut self.state);
+
+        // GPU catchup
+        let next_gpu = self.state.gpu.next_time(&mut self.state.mmu);
+        while self.gpu_cycles + next_gpu  < self.cpu_cycles {
+            self.gpu_cycles += next_gpu;
+            self.state.gpu.step(&mut self.state.mmu);
         }
 
-        // Do next instruction cycle
-        self.cpu.step(&mut self.state);
-        self.cpu.interrupts(&mut self.state);
+        // Timer catchup
+        let next_timer = self.state.timer.next_time(&mut self.state.mmu);
+        while self.timer_cycles + next_timer < self.cpu_cycles {
+            self.timer_cycles += next_timer;
+            self.state.timer.step(&mut self.state.mmu);
+        }
     }
 }
 
@@ -52,7 +62,7 @@ impl <T: BankController>State<T> {
 
     pub fn safe_write(&mut self, addr: Addr, value: Byte) {
         if !self.is_addr_allowed(addr) { 
-            println!("Tried writing to restricted memory at 0x{:x}", addr);  
+            println!("Write to restricted memory at 0x{:x}", addr);  
         }
 
         self.mmu.write(addr, value);

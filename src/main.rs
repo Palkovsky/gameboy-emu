@@ -20,11 +20,15 @@ use sdl2::rect::Rect;
 
 const WINDOW_NAME: &str = "GAMEBOY EMU";
 const SCALE: u32 = 4;
-const A_CHAR: [u8; 16] = [
-    0x7C, 0x7C, 0x00, 0xC6, 0xC6, 0x00, 0x00, 0xFE, 0xC6, 0xC6, 0x00, 0xC6, 0xC6, 0x00, 0x00, 0x00,
+
+const NINTENDO: [u8; 48] = [
+    0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D, 
+	0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
+	0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
 ];
-const BLACK_TILE: [u8; 16] = [
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+const CHECKSUM: [u8; 26] = [
+    0x50, 0x4F, 0x4B, 0x45, 0x4D, 0x4F, 0x4E, 0x20, 0x42, 0x4C, 0x55, 0x45, 0x00,
+    0x00, 0x00, 0x00, 0x30, 0x31, 0x03, 0x13, 0x05, 0x03, 0x01, 0x33, 0x00, 0xD3,
 ];
 
 fn main() -> Result<(), String> {
@@ -41,7 +45,6 @@ fn main() -> Result<(), String> {
         .take(0x150).skip(0x100)
         .map(|x| *x).collect());
     println!("{}", header);
-    */
 
     let mut state = State::new(MBC1::new(vec![0; 1 << 21]));
     let mmu = &mut state.mmu;
@@ -73,6 +76,15 @@ fn main() -> Result<(), String> {
     GPU::_BG_TILE_MAP(mmu, true);
     GPU::_WINDOW_TILE_MAP(mmu, false);
     GPU::_COINCIDENCE_INTERRUPT_ENABLE(mmu, true);
+*/
+    let mut rom = vec![0; 1 << 21];
+
+    // Mock nintedo logo to pass bootrom check
+    for i in 0..48 { rom[0x104 + i] = NINTENDO[i]; }
+    // Mock checksum
+    for i in 0..26 { rom[0x134 + i] = CHECKSUM[i]; }
+
+    let mut runtime = Runtime::new(MBC3::new(rom));
 
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
@@ -87,31 +99,7 @@ fn main() -> Result<(), String> {
     'emulating: loop {
         let now = Instant::now();
         
-        for j in 0..gpu::SCREEN_HEIGHT { 
-            gpu.step(mmu); // OAM 
-            assert_eq!(GPU::MODE(mmu), GPUMode::LCD_TRANSFER);
-
-            let iflg = mmu.read(IF);
-            if iflg & 2 != 0 {
-                GPU::_WINDOW_ENABLED(mmu, false);
-                mmu.write(IF, iflg & 0xFD);
-                // println!("Line {} disabled. WY: {}", GPU::LY(mmu), GPU::WY(mmu));
-            }
-
-            gpu.step(mmu); // LCD
-            assert_eq!(GPU::MODE(mmu), GPUMode::HBLANK);
-
-            gpu.step(mmu); // HBLANK
-            assert_eq!(GPU::MODE(mmu), if j == SCREEN_HEIGHT - 1 {GPUMode::VBLANK} else {GPUMode::OAM_SEARCH});
-        }
-        gpu.step(mmu); // VBLANK
-        assert_eq!(GPU::MODE(mmu), GPUMode::OAM_SEARCH);
-
-        GPU::_WINDOW_ENABLED(mmu, true);
-
-        println!("{}ms/frame | Rs: {} | Ws: {}", now.elapsed().as_millis(), mmu.reads, mmu.writes);
-        mmu.reads = 0;
-        mmu.writes = 0;
+        for _ in 0..2000 { runtime.step(); }
 
         for event in events.poll_iter() {
             if let Event::Quit {..}  |  Event::KeyDown { keycode: Some(Keycode::Escape), .. } = event {
@@ -119,6 +107,7 @@ fn main() -> Result<(), String> {
             }
 
             let update = 4;
+            let mmu = &mut runtime.state.mmu;
             match event {
                 // SCX/SCY controls
                 Event::KeyDown { keycode: Some(Keycode::A), .. } => { 
@@ -164,6 +153,13 @@ fn main() -> Result<(), String> {
                 _ => {}
             }
         }
+
+        let gpu = &mut runtime.state.gpu;
+        let mmu = &mut runtime.state.mmu;
+
+        println!("{}ms/frame | Rs: {} | Ws: {}", now.elapsed().as_millis(), mmu.reads, mmu.writes);
+        mmu.reads = 0;
+        mmu.writes = 0;
 
         for (i, (r, g, b)) in gpu.framebuff.iter().enumerate() {
             let y = i/SCREEN_WIDTH;

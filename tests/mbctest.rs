@@ -20,7 +20,7 @@ mod mbctest {
 
     fn mock_memory<T: mbc::BankController>(mapper: T) -> MMU<T> {
         let mut mmu = mmu::MMU::new(mapper);
-        mmu.booting(false);
+        mmu.disable_bootrom();
         mmu
     }
 

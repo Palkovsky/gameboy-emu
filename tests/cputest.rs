@@ -15,7 +15,7 @@ mod cputest {
         for (i, b) in code.into_iter().enumerate() { bytes[i] = b; }
         let mut res = Runtime::new(mbc::MBC3::new(bytes));
         
-        res.state.mmu.booting(false); // We're testing instructions so bootrom should be disabled
+        res.state.mmu.disable_bootrom(); // We're testing instructions so bootrom should be disabled
         res.cpu.STOP = false;
         res.cpu.HALT = false;
 
@@ -199,7 +199,7 @@ mod cputest {
         assert_eq!(runtime.cpu.PC.val(), 0x0000); 
 
         // Make sure there are NOPs only
-        runtime.state.mmu.booting(false);
+        runtime.state.mmu.disable_bootrom();
         for off in 0..256 { assert_eq!(runtime.state.mmu.read(0x0000 + off), NOP); }
 
         // Check if PC incremented correctly
