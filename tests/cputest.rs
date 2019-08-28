@@ -23,6 +23,25 @@ mod cputest {
     }
 
     #[test]
+    fn cb_instructions() {
+        let mut runtime = gen_with_code(vec![
+            0x3E, 0x00, // LD A, 0x00
+            0xCB, 0xD7, // SET 2, A
+            0xCB, 0x57, // BIT 2, A
+        ]);
+
+        runtime.step();
+        assert_eq!(runtime.cpu.A, 0x00);
+
+        runtime.step();
+        assert_eq!(runtime.cpu.A, 1 << 2);
+        runtime.cpu.Z = false;
+
+        runtime.step();
+        assert_eq!(runtime.cpu.Z, true);
+    }
+
+    #[test]
     fn simple_loop() {
         let mut runtime = gen_with_code(vec![
             0x3E, 0x00, // LD A, 0x00

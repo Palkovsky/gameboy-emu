@@ -71,6 +71,133 @@ const L_IDX: u8 = 5;
 const ADDR_HL_IDX: u8 = 6;
 const A_IDX: u8 = 7;
 
+fn handle_cb(cpu: &mut CPU, s: &mut State<impl BankController>, op: u8) -> u8 {
+    match op {
+        // RLC
+        0x00 | 0x01 | 0x02 | 0x03 | 0x04 | 0x05 | 0x06 | 0x07 => {
+            let idx = op & 0x7;
+            let val = cpu.reg(s, idx);
+
+            cpu.C = val & 0x80 != 0;
+            let updated = (val << 1) + if cpu.C { 1 } else { 0 };
+            
+            cpu.reg_set(s, idx, updated);
+            cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
+        },
+        // RRC
+        0x08 | 0x09 | 0x0A | 0x0B | 0x0C | 0x0D | 0x0E | 0x0F => {
+            let idx = op & 0x7;
+            let val = cpu.reg(s, idx);
+
+            cpu.C = val & 1 != 0;
+            let updated = (val >> 1) + if cpu.C { 1 << 7 } else { 0 };
+            
+            cpu.reg_set(s, idx, updated);
+            cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
+        },
+        // RL
+        0x10 | 0x11 | 0x12 | 0x13 | 0x14 | 0x15 | 0x16 | 0x17 => {
+            let idx = op & 0x7;
+            let val = cpu.reg(s, idx);
+
+            let msb = val & 0x80 != 0;
+            let updated = (Wrapping(val) << 1).0 + if cpu.C { 1 } else { 0 };
+            
+            cpu.reg_set(s, idx, updated);
+            cpu.C = msb; cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
+        },
+        // RR
+        0x18 | 0x19 | 0x1A | 0x1B | 0x1C | 0x1D | 0x1E | 0x1F => {
+            let idx = op & 0x7;
+            let val = cpu.reg(s, idx);
+
+            let lsb = val & 1 != 0;
+            let updated = (val >> 1) + if cpu.C { 1 << 7 } else { 0 };
+            
+            cpu.reg_set(s, idx, updated);
+            cpu.C = lsb; cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
+        },
+        // SLA - Shift left into carry. LSB is set to 0.
+        0x20 | 0x21 | 0x22 | 0x23 | 0x24 | 0x25 | 0x26 | 0x27 => {
+            let idx = op & 0x7;
+            let val = cpu.reg(s, idx);
+
+            cpu.C = val & 0x80 != 0;
+            let updated = (Wrapping(val) << 1).0;
+            
+            cpu.reg_set(s, idx, updated);
+            cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
+        },
+        // SRA - Shift right into Carry. MSB doesn't change.
+        0x28 | 0x29 | 0x2A | 0x2B | 0x2C | 0x2D | 0x2E | 0x2F => {
+            let idx = op & 0x7;
+            let val = cpu.reg(s, idx);
+
+            cpu.C = val & 1 != 0;            
+            cpu.Z = val == 0x00; cpu.H = false; cpu.N = false;
+        },
+        // SWAP - swap upper and lower nibbles of reg
+        0x30 | 0x31 | 0x32 | 0x33 | 0x34 | 0x35 | 0x36 | 0x37 => {
+            let idx = op & 0x7;
+            let val = cpu.reg(s, idx);
+            let updated = ((val & 0xF) << 4) + (val >> 4);
+            
+            cpu.reg_set(s, idx, updated);
+            cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false; cpu.C = false;
+        },
+        // SRL - Shift right into Carry. MSB set to 0.
+        0x38 | 0x39 | 0x3A | 0x3B | 0x3C | 0x3D | 0x3E | 0x3F => {
+            let idx = op & 0x7;
+            let val = cpu.reg(s, idx);
+
+            cpu.C = val & 1 != 0;   
+            let updated = val >> 1;
+
+            cpu.reg_set(s, idx, updated);
+            cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
+        },
+
+        // BIT
+        0x40 | 0x41 | 0x42 | 0x43 | 0x44 | 0x45 | 0x46 | 0x47 | 0x48 | 0x49 | 0x4A | 0x4B | 0x4C | 0x4D | 0x4E | 0x4F |
+        0x50 | 0x51 | 0x52 | 0x53 | 0x54 | 0x55 | 0x56 | 0x57 | 0x58 | 0x59 | 0x5A | 0x5B | 0x5C | 0x5D | 0x5E | 0x5F |
+        0x60 | 0x61 | 0x62 | 0x63 | 0x64 | 0x65 | 0x66 | 0x67 | 0x68 | 0x69 | 0x6A | 0x6B | 0x6C | 0x6D | 0x6E | 0x6F | 
+        0x70 | 0x71 | 0x72 | 0x73 | 0x74 | 0x75 | 0x76 | 0x77 | 0x78 | 0x79 | 0x7A | 0x7B | 0x7C | 0x7D | 0x7E | 0x7F   => {
+            let reg_idx = op & 0x7;
+            let bit_idx = (op >> 3) & 0x7;
+            let val = cpu.reg(s, reg_idx);
+
+            cpu.Z = (val & (1 << bit_idx)) != 0;
+            cpu.N = false; cpu.H = true;
+        },
+        // RES
+        0x80 | 0x81 | 0x82 | 0x83 | 0x84 | 0x85 | 0x86 | 0x87 | 0x88 | 0x89 | 0x8A | 0x8B | 0x8C | 0x8D | 0x8E | 0x8F |
+        0x90 | 0x91 | 0x92 | 0x93 | 0x94 | 0x95 | 0x96 | 0x97 | 0x98 | 0x99 | 0x9A | 0x9B | 0x9C | 0x9D | 0x9E | 0x9F |
+        0xA0 | 0xA1 | 0xA2 | 0xA3 | 0xA4 | 0xA5 | 0xA6 | 0xA7 | 0xA8 | 0xA9 | 0xAA | 0xAB | 0xAC | 0xAD | 0xAE | 0xAF | 
+        0xB0 | 0xB1 | 0xB2 | 0xB3 | 0xB4 | 0xB5 | 0xB6 | 0xB7 | 0xb8 | 0xB9 | 0xBA | 0xBB | 0xBC | 0xBD | 0xBE | 0xBF   => {
+            let reg_idx = op & 0x7;
+            let bit_idx = (op >> 3) & 0x7;
+            let val = cpu.reg(s, reg_idx);
+            let updated = val & ((1 << bit_idx) ^ 0xFF);
+            cpu.reg_set(s, reg_idx, updated);
+        },
+        // SET
+        0xC0 | 0xC1 | 0xC2 | 0xC3 | 0xC4 | 0xC5 | 0xC6 | 0xC7 | 0xC8 | 0xC9 | 0xCA | 0xCB | 0xCC | 0xCD | 0xCE | 0xCF |
+        0xD0 | 0xD1 | 0xD2 | 0xD3 | 0xD4 | 0xD5 | 0xD6 | 0xD7 | 0xD8 | 0xD9 | 0xDA | 0xDB | 0xDC | 0xDD | 0xDE | 0xDF |
+        0xE0 | 0xE1 | 0xE2 | 0xE3 | 0xE4 | 0xE5 | 0xE6 | 0xE7 | 0xE8 | 0xE9 | 0xEA | 0xEB | 0xEC | 0xED | 0xEE | 0xEF | 
+        0xF0 | 0xF1 | 0xF2 | 0xF3 | 0xF4 | 0xF5 | 0xF6 | 0xF7 | 0xF8 | 0xF9 | 0xFA | 0xFB | 0xFC | 0xFD | 0xFE | 0xFF   => {
+            let reg_idx = op & 0x7;
+            let bit_idx = (op >> 3) & 0x7;
+            let val = cpu.reg(s, reg_idx);
+            let updated = val | (1 << bit_idx);
+            cpu.reg_set(s, reg_idx, updated);
+        },
+        _ => panic!("Invalid 0xCB instruction: {}", op),
+    };
+
+    // Calculate number of cycles
+    if op & 0xF == 0x6 || op & 0xF == 0xE { 4 } else { 2 }
+}
+
 /* Decoder for Gameboy CPU (LR35902) instructions */
 fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {    
     let (mnemo, size, f): (&str, u8, Box<InstructionHandler<T>>) = match op {
@@ -80,9 +207,18 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         0x76 => ("HALT",   1, Box::new(|cpu, _, _, _, _| { cpu.HALT = true; 1 })),
         0xF4 => ("DI",     1, Box::new(|cpu, _, _, _, _| { cpu.IME = false; 1 })),
         0xFB => ("EI",     1, Box::new(|cpu, _, _, _, _| { cpu.IME = true; 1 })),
-        // Decimal adjust A
+        // BCD adjust A
         0x27 => ("DAA", 1, Box::new(|cpu, _, _, _, _| {
-            1 // To be done when test roms will work
+            if cpu.N { // After subtract
+                if cpu.C || cpu.A > 0x99 { cpu.A += 0x60; cpu.C = true; }
+                if cpu.H || (cpu.A & 0xF) > 0x9 { cpu.A += 0x6; }
+            } else { // After addition
+                if cpu.C { cpu.A -= 0x60; }
+                if cpu.H { cpu.A -= 0x6; }
+            }
+            cpu.Z = cpu.A == 0x00;
+            cpu.H = false;
+            1
         })),
         // Set carry flag
         0x37 => ("SCF", 1, Box::new(|cpu, _, _, _, _| {
@@ -105,6 +241,9 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
             cpu.C ^= true;
             1
         })),
+
+        /* 0xCB instruction set */
+        0xCB => ("PREFIX CB", 2, Box::new(|cpu, s, _, op, _| { handle_cb(cpu, s, op) })),
 
         /* 8bit load/store/move instructions */
         // To B register
@@ -647,21 +786,11 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         0xD8 => ("RET C", 1, Box::new(|cpu, s, _, _, _| {
             if !cpu.C { return 2 }; cpu.ret(s); 5
         })),
-
         _ => return None,
     };
         
     Some(Instruction::new(mnemo, size, f))
 }
-
-fn decode_cb<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
-    let (mnemo, f): (&str, Box<InstructionHandler<T>>) = match op {
-        _ => return None,
-    };
-
-    Some(Instruction::new(mnemo, 2, f))
-}
-
 
 #[repr(C)]
 pub union Reg {
@@ -758,34 +887,21 @@ impl CPU {
         // If HALT or STOP set CPU executes NOPs without incrementing PC.
         if self.HALT || self.STOP { return 1 }
 
-        let mut pc = self.PC.val();
-        let mut op = state.safe_read(pc);
-        let mut cb_inst_set = false;
+        let pc = self.PC.val();
+        let op = state.safe_read(pc);
 
         println!("----- PC: 0x{:X} -----", pc);
-
-        // Opcode 0xCB is special case. It's a prefix for another set of 256 2-byte instructions.
-        if op == 0xCB {
-            pc += 1;
-            self.PC.set(pc);
-            op = state.safe_read(pc);
-            cb_inst_set = true;
-            println!("CB prefixed 0x{:x} from 0x{:x}", op, pc);
-        } else {
-            println!("Fetched 0x{:x} from 0x{:x}", op, pc);
-        }
-
-        let Instruction { size, handler: mut f, mnemo } = if cb_inst_set { decode_cb(op) } else { decode(op) }
+        println!("Fetched 0x{:x} from 0x{:x}", op, pc);
+    
+        let Instruction { size, handler: mut f, mnemo } = decode(op)
             .unwrap_or_else(|| panic!("Unrecognized OPCODE 0x{:x} at 0x{:x}. {:?}", op, pc, self));
-        
         let argc = size - 1;
         let op1 = if argc >= 1 { state.safe_read(pc+1) } else { 0 };
         let op2 = if argc >= 2 { state.safe_read(pc+2) } else { 0 };
 
         println!("Executing '{}' with size {}.", mnemo, size);
-        
         self.PC.set(safe_w_add(self.PC.val(), size as u16));
-        f(self, state, op, op1, op2) as u64;
+        f(self, state, op, op1, op2) as u64
     }
 
     // interrupts() will check for interrupt requests and pass control to appropriate ISR(Interrupt Service Routine)
