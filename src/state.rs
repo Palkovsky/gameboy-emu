@@ -22,8 +22,6 @@ impl <T: BankController>Runtime<T> {
 
     pub fn step(&mut self) {
         self.cpu_cycles += self.cpu.step(&mut self.state);
-        if self.cpu.PC.val() >= 0x100 { panic!("End of bootrom!"); }
-        self.cpu_cycles += self.cpu.interrupts(&mut self.state);
 
         // GPU catchup
         let next_gpu = self.state.gpu.next_time(&mut self.state.mmu);
@@ -38,6 +36,8 @@ impl <T: BankController>Runtime<T> {
             self.timer_cycles += next_timer;
             self.state.timer.step(&mut self.state.mmu);
         }
+
+        self.cpu_cycles += self.cpu.interrupts(&mut self.state);
     }
 }
 
@@ -61,9 +61,9 @@ impl <T: BankController>State<T> {
     }
 
     pub fn safe_write(&mut self, addr: Addr, value: Byte) {
-        if !self.is_addr_allowed(addr) { 
-            println!("Write to restricted memory at 0x{:x}", addr);  
-        }
+        //if !self.is_addr_allowed(addr) { 
+        //    println!("Write to restricted memory at 0x{:x}", addr);  
+        //}
 
         self.mmu.write(addr, value);
         match addr {

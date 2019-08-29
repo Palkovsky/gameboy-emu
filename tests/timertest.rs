@@ -45,7 +45,7 @@ mod timertest {
 
         for ((steps, mode), mask) in steps.into_iter().zip(modes.into_iter()).zip(masks.into_iter()) {
             state.safe_write(ioregs::TAC, *mask);
-            assert_eq!(Timer::STOPPED(&mut state.mmu), false);
+            assert_eq!(Timer::ENABLED(&mut state.mmu), true);
             assert_eq!(Timer::MODE(&mut state.mmu), *mode);
 
             state.safe_write(ioregs::TIMA, 0);
@@ -73,8 +73,8 @@ mod timertest {
     fn timer_disabled() {
         let mut state = gen_state();
 
-        state.safe_write(ioregs::TAC, 0b111);
-        assert_eq!(Timer::STOPPED(&mut state.mmu), true);
+        state.safe_write(ioregs::TAC, 0b011);
+        assert_eq!(Timer::ENABLED(&mut state.mmu), false);
         assert_eq!(Timer::MODE(&mut state.mmu), TimerMode::FQ_16384HZ);
         
         assert_eq!(Timer::DIV(&mut state.mmu), 0);
@@ -96,8 +96,8 @@ mod timertest {
     fn tima_runtime_updates() {
         let mut state = gen_state();
 
-        state.safe_write(ioregs::TAC, 0b000);
-        assert_eq!(Timer::STOPPED(&mut state.mmu), false);
+        state.safe_write(ioregs::TAC, 0b100);
+        assert_eq!(Timer::ENABLED(&mut state.mmu), true);
         assert_eq!(Timer::MODE(&mut state.mmu), TimerMode::FQ_4096HZ);
 
         // Loop for full clock and some extra few machine cycles

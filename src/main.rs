@@ -31,75 +31,42 @@ const CHECKSUM: [u8; 26] = [
     0x00, 0x00, 0x00, 0x30, 0x31, 0x03, 0x13, 0x05, 0x03, 0x01, 0x33, 0x00, 0xD3,
 ];
 
-fn main() -> Result<(), String> {
-    /*
+fn main() {
     if env::args().len() != 2 {
         panic!("Usage: {} [rom]", env::args().nth(0).unwrap());
     }
     let path = env::args().nth(1).unwrap();
     let mut file = fs::File::open(path).unwrap();
     let mut rom = Vec::new();
-    file.read_to_end(&mut rom)?;
+    file.read_to_end(&mut rom).unwrap();
 
-    let header = CartHeader::new(rom.iter()
-        .take(0x150).skip(0x100)
-        .map(|x| *x).collect());
-    println!("{}", header);
-
-    let mut state = State::new(MBC1::new(vec![0; 1 << 21]));
-    let mmu = &mut state.mmu;
-    let gpu = &mut state.gpu;
-
-    for (i, byte) in BLACK_TILE.iter().enumerate() { mmu.write(32 + 0x9000 + i as u16, *byte); }
-    for (i, byte) in A_CHAR.iter().enumerate() { mmu.write(16 + 0x9000 + i as u16, *byte); }
-
-    mmu.write(TILE_MAP_2, 2);
-    mmu.write(TILE_MAP_2 + 20, 1);
-    mmu.write(TILE_MAP_2 + 26, 1);
-    mmu.write(TILE_MAP_2 + 30, 1);
-    mmu.write(TILE_MAP_2 + 31, 1);
-    mmu.write(TILE_MAP_2 + 32, 1);
-    mmu.write(TILE_MAP_2 + 32*31, 1);
-    mmu.write(TILE_MAP_2 + 32*32 - 1, 1);
-    for i in 0..1024 { mmu.write(TILE_MAP_1 + i, 2); }
-    
-    mmu.write(SCX, 0);
-    mmu.write(SCY, 0);
-    mmu.write(WX, SCREEN_WIDTH as u8/2);
-    mmu.write(WY, (SCREEN_HEIGHT as f64 * 0.25) as u8);
-    mmu.write(BGP, 0b11100100);
-    mmu.write(LYC, gpu::SCREEN_HEIGHT as u8 - 20);
-
-    GPU::_LCD_DISPLAY_ENABLE(mmu, true);
-    GPU::_WINDOW_ENABLED(mmu, true);
-    GPU::_TILE_ADDRESSING(mmu, false);
-    GPU::_BG_TILE_MAP(mmu, true);
-    GPU::_WINDOW_TILE_MAP(mmu, false);
-    GPU::_COINCIDENCE_INTERRUPT_ENABLE(mmu, true);
+    //let header = CartHeader::new(rom.iter()
+    //    .take(0x150).skip(0x100)
+    //    .map(|x| *x).collect());
+    //println!("{}", header);
+/*
+    let mut runtime = Runtime::new(mbc::MBC3::new(rom));
+    runtime.state.mmu.disable_bootrom();
+    runtime.cpu.PC.set(0x100);
 */
-    let mut rom = vec![0; 1 << 21];
+    let mut runtime = Runtime::new(mbc::RomOnly::new(rom));
+    
 
-    // Mock nintedo logo to pass bootrom check
-    for i in 0..48 { rom[0x104 + i] = NINTENDO[i]; }
-    // Mock checksum
-    for i in 0..26 { rom[0x134 + i] = CHECKSUM[i]; }
-
-    let mut runtime = Runtime::new(MBC3::new(rom));
-
-    let sdl_context = sdl2::init()?;
-    let video_subsystem = sdl_context.video()?;
+    let sdl_context = sdl2::init().unwrap();
+    let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem.window(WINDOW_NAME, SCALE * SCREEN_WIDTH as u32, SCALE * SCREEN_HEIGHT as u32)
         .position_centered()
         .opengl()
         .build()
-        .map_err(|e| e.to_string())?;
-    let mut events = sdl_context.event_pump()?;
-    let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())
+        .unwrap();
+    let mut events = sdl_context.event_pump().unwrap();
+    let mut canvas = window.into_canvas().build().map_err(|e| e.to_string()).unwrap();
     
     'emulating: loop {
         let now = Instant::now();
         
-        for _ in 0..2000 { runtime.step(); }
+        for _ in 0..12000 { runtime.step(); }
 
         for event in events.poll_iter() {
             if let Event::Quit {..}  |  Event::KeyDown { keycode: Some(Keycode::Escape), .. } = event {
@@ -157,7 +124,7 @@ fn main() -> Result<(), String> {
         let gpu = &mut runtime.state.gpu;
         let mmu = &mut runtime.state.mmu;
 
-        println!("{}ms/frame | Rs: {} | Ws: {}", now.elapsed().as_millis(), mmu.reads, mmu.writes);
+        //println!("{}ms/frame | Rs: {} | Ws: {}", now.elapsed().as_millis(), mmu.reads, mmu.writes);
         mmu.reads = 0;
         mmu.writes = 0;
 
@@ -167,9 +134,9 @@ fn main() -> Result<(), String> {
             let rect = Rect::new(SCALE as i32 * x as i32, SCALE as i32 * y as i32, SCALE, SCALE);
 
             canvas.set_draw_color(Color::RGB(*r, *g, *b));
-            canvas.fill_rect(rect)?;
+            canvas.fill_rect(rect).unwrap();
         }
-
+/*
         for y in 0..SCREEN_HEIGHT {
             for x in 0..SCREEN_WIDTH {
                 let rect = Rect::new(SCALE as i32 * x as i32*8, SCALE as i32 * y as i32*8, SCALE*8, SCALE*8);
@@ -178,9 +145,7 @@ fn main() -> Result<(), String> {
                 canvas.draw_rect(rect)?;
             }
         }
-        
+  */      
         canvas.present();
     } 
-
-    Ok(())
 }

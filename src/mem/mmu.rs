@@ -76,8 +76,7 @@ impl <T: BankController>MMU<T> {
             (15, 0, _, _) | (15, 1, _, _) | (15, 2, _, _) | (15, 3, _, _)  | (15, 4, _, _) | (15, 5, _, _) | (15, 6, _, _) |
             (15, 7, _, _) | (15, 8, _, _) | (15, 9, _, _) | (15, 10, _, _) | (15, 11, _, _) | (15, 12, _, _) | (15, 13, _, _)  =>
                 self.write_base_ram(addr, (addr - RAM_ECHO_ADDR) as usize, byte),
-            (15, 14, 0, _) | (15, 14, 1, _) | (15, 14, 2, _) | (15, 14, 3, _) | (15, 14, 4, _) | (15, 14, 5, _) | (15, 14, 6, _) |
-            (15, 14, 7, _) | (15, 14, 8, _) | (15, 14, 9, _) => 
+            (15, 14, _, _) => 
                 self.write_oam(addr, (addr - OAM_ADDR) as usize, byte),
             (15, 15, 0, _) | (15, 15, 1, _) | (15, 15, 2, _) | (15, 15, 3, _) | (15, 15, 4, _) | (15, 15, 5, _) | (15, 15, 6, _) |
             (15, 15, 7, _) | (15, 15, 15, 15) =>
@@ -90,14 +89,14 @@ impl <T: BankController>MMU<T> {
     fn write_base_rom(&mut self, addr: Addr, _: usize, value: Byte) {
         match self.mapper.get_addr_type(addr) {
             AddrType::Status =>  self.mapper.on_status(addr, value),
-            AddrType::Write => panic!("Attempt to write to ROM at 0x{:X}", addr),
+            AddrType::Write => println!("Attempt to write to ROM at 0x{:X}", addr),
         }
     }
 
     fn write_switchable_rom(&mut self, addr: Addr, _: usize, value: Byte) {
         match self.mapper.get_addr_type(addr) {
             AddrType::Status => self.mapper.on_status(addr, value),
-            AddrType::Write => panic!("Attempt to write to ROM at 0x{:X}", addr),
+            AddrType::Write => println!("Attempt to write to ROM at 0x{:X}", addr),
         }
     }
 
@@ -106,9 +105,13 @@ impl <T: BankController>MMU<T> {
     }
 
     fn write_switchable_ram(&mut self, addr: Addr, offset: usize, value: Byte) {
+        println!("{:x}", addr);
         match self.mapper.get_addr_type(addr) {
             AddrType::Status => panic!("Unable to send status at RAM address 0x{:X}", addr),
-            AddrType::Write => self.mapper.get_switchable_ram().unwrap()[offset] = value,
+            AddrType::Write => match self.mapper.get_switchable_ram() {
+                None => println!("Attempted to write to 0x{:x}, storage not present.", addr),
+                Some(arr) => arr[offset] = value,
+            }
         }
     }
 
@@ -153,8 +156,7 @@ impl <T: BankController>MMU<T> {
             (15, 0, _, _) | (15, 1, _, _) | (15, 2, _, _) | (15, 3, _, _)  | (15, 4, _, _) | (15, 5, _, _) | (15, 6, _, _) |
             (15, 7, _, _) | (15, 8, _, _) | (15, 9, _, _) | (15, 10, _, _) | (15, 11, _, _) | (15, 12, _, _) | (15, 13, _, _)  =>
                 self.read_base_ram(addr, (addr - RAM_ECHO_ADDR) as usize),
-            (15, 14, 0, _) | (15, 14, 1, _) | (15, 14, 2, _) | (15, 14, 3, _) | (15, 14, 4, _) | (15, 14, 5, _) | (15, 14, 6, _) |
-            (15, 14, 7, _) | (15, 14, 8, _) | (15, 14, 9, _)  => 
+            (15, 14, _, _) => 
                 self.read_oam(addr, (addr - OAM_ADDR) as usize),
             (15, 15, 0, _) | (15, 15, 1, _) | (15, 15, 2, _) | (15, 15, 3, _) | (15, 15, 4, _) | (15, 15, 5, _) | (15, 15, 6, _) |
             (15, 15, 7, _) | (15, 15, 15, 15) =>
@@ -164,20 +166,29 @@ impl <T: BankController>MMU<T> {
         }
     }
 
-    fn read_base_rom(&mut self, _: Addr, offset: usize) -> Byte {
-        self.mapper.get_base_rom().unwrap()[offset]
+    fn read_base_rom(&mut self, addr: Addr, offset: usize) -> Byte {
+        match self.mapper.get_base_rom() {
+            Some(arr) => return arr[offset],
+            None => { println!("Attempted to read unexistent memory at 0x{:x}", addr); 0xFF },
+        }
     }
 
-    fn read_switchable_rom(&mut self, _: Addr, offset: usize) -> Byte {
-        self.mapper.get_switchable_rom().unwrap()[offset]
+    fn read_switchable_rom(&mut self, addr: Addr, offset: usize) -> Byte {
+        match self.mapper.get_switchable_rom() {
+            Some(arr) => return arr[offset],
+            None => { println!("Attempted to read unexistent memory at 0x{:x}", addr); 0xFF },
+        }
     }
 
     fn read_vram(&mut self, _: Addr, offset: usize) -> Byte { 
         self.vram[offset] 
     }
 
-    fn read_switchable_ram(&mut self, _: Addr, offset: usize) -> Byte {
-        self.mapper.get_switchable_ram().unwrap()[offset]
+    fn read_switchable_ram(&mut self, addr: Addr, offset: usize) -> Byte {
+        match self.mapper.get_switchable_ram() {
+            Some(arr) => return arr[offset],
+            None => { println!("Attempted to read unexistent memory at 0x{:x}", addr); 0xFF },
+        }
     }
 
     fn read_base_ram(&mut self, _: Addr, offset: usize) -> Byte {

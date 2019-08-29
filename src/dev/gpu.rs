@@ -61,12 +61,12 @@ pub struct GPU {
 
 impl <T: BankController>Clocked<T> for GPU {
     fn next_time(&self, mmu: &mut MMU<T>) -> u64 {
-        if !GPU::LCD_DISPLAY_ENABLE(mmu) { return 0 }
+        // if !GPU::LCD_DISPLAY_ENABLE(mmu) { return 0 }
         match GPU::MODE(mmu) {
             GPUMode::OAM_SEARCH => OAM_SEARCH_CYCLES,
             GPUMode::LCD_TRANSFER => LCD_TRANSFER_CYCLES,
             GPUMode::HBLANK => HBLANK_CYCLES,
-            GPUMode::VBLANK => VBLANK_CYCLES,
+            GPUMode::VBLANK => SCANLINE_CYCLES,
         } 
     }
 
@@ -97,10 +97,12 @@ impl <T: BankController>Clocked<T> for GPU {
                 }
             },
             GPUMode::VBLANK => {
-                GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
-                self.ly = 0;
+                self.ly = if self.ly as usize == SCREEN_HEIGHT + VBLANK_HEIGHT { 0 } else  { self.ly + 1 };
                 self.update(mmu);
-                if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) { GPU::stat_int(mmu); }
+                if self.ly == 0 {
+                    GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
+                    if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) { GPU::stat_int(mmu); }
+                }
             },
         };
     }
@@ -120,7 +122,7 @@ impl GPU {
     }
 
     // Draws LY scanline.
-    fn scanline<T: BankController>(&mut self, mmu: &mut MMU<T>) { 
+    fn scanline(&mut self, mmu: &mut MMU<impl BankController>) { 
         let mut lx = 0usize;
         let ly = self.ly as usize;
         

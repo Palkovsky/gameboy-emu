@@ -29,6 +29,6 @@ pub const BOOSTRAP_SIZE: usize = 0x100;
 pub const RAM_BANK_SIZE: usize = 0x2000;
 pub const ROM_BANK_SIZE: usize = 0x4000;
 pub const VRAM_SIZE: usize = 0x2000;
-pub const OAM_SIZE: usize = 0xA0;
+pub const OAM_SIZE: usize = 0x100;
 pub const IO_REG_SIZE: usize = 0x80;
 pub const HRAM_SIZE: usize = 0x80;

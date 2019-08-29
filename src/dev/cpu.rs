@@ -31,24 +31,20 @@ fn word_split(val: u16) -> (u8, u8) {
 }
 
 // Predicates for carry flag check
-fn add_b_carry(op1: u8, op2: u8) -> bool { op1 as u16 + op2 as u16 > 0xFF }
+fn add_b_carry(op1: u8, op2: u8) -> bool   { op1 as u16 + op2 as u16 > 0xFF }
 fn add_w_carry(op1: u16, op2: u16) -> bool { op1 as u32 + op2 as u32 > 0xFFFF }
-fn sub_b_carry(op1: u8, op2: u8) -> bool { op1 < op2 }
+fn sub_b_carry(op1: u8, op2: u8) -> bool   { op1 < op2 }
 // ex. SP+r8. It checks overflow on 7th bit
 fn add_signed_carry(op1: u16, op2: u8) -> bool {
-    let r8 = op2 as i8;
-    if r8 >= 0 { (op1 & 0xFF) + r8 as u16 > 0xFF }
-    else       { (op1 as i16 & 0xFF) <= ((op1 as i16 + r8 as i16) & 0xFF) }
+    (safe_signed_add(op1, op2) & 0xFF) < (op1 & 0xFF)
 }
 
 // Predicates for half carry flag check
-fn add_b_hcarry(op1: u8, op2: u8) -> bool { ((op1 & 0xF) + (op2 & 0xF)) > 0xF }
+fn add_b_hcarry(op1: u8, op2: u8) -> bool   { ((op1 & 0xF) + (op2 & 0xF)) > 0xF }
 fn add_w_hcarry(op1: u16, op2: u16) -> bool { ((op1 & 0xFFF) + (op2 & 0xFFF)) > 0xFFF }
-fn sub_b_hcarry(op1: u8, op2: u8) -> bool { (op1 & 0xF) < (op2 & 0xF) }
+fn sub_b_hcarry(op1: u8, op2: u8) -> bool   { (op1 & 0xF) < (op2 & 0xF) }
 fn add_signed_hcarry(op1: u16, op2: u8) -> bool {
-    let r8 = op2 as i8;
-    if r8 >= 0 { (op1 & 0xF) + (r8 as u16 & 0xF) > 0xF }
-    else       { (op1 as i16 & 0xF) <= ((op1 as i16 + r8 as i16) & 0xF) }
+    (safe_signed_add(op1, op2) & 0xF) < (op1 & 0xF)
 }
 
 // Safe add/sub to prevent runtime overflow errorsaaaa
@@ -59,7 +55,7 @@ fn safe_w_sub(op1: u16, op2: u16) -> u16 { (Wrapping(op1) - Wrapping(op2)).0 }
 fn safe_signed_add(op1: u16, op2: u8) -> u16 {
     let s = op2 as i8;
     if s >= 0 { (Wrapping(op1) + Wrapping(op2 as u16)).0 } 
-    else { (Wrapping(op1) - Wrapping((-s) as u16)).0 }
+    else      { (Wrapping(op1) - Wrapping((-s) as u16)).0 }
 }
 pub const ZP_ADDR: u16 = 0xFF00;
 const B_IDX: u8 = 0;
@@ -77,10 +73,8 @@ fn handle_cb(cpu: &mut CPU, s: &mut State<impl BankController>, op: u8) -> u8 {
         0x00 | 0x01 | 0x02 | 0x03 | 0x04 | 0x05 | 0x06 | 0x07 => {
             let idx = op & 0x7;
             let val = cpu.reg(s, idx);
-
             cpu.C = val & 0x80 != 0;
             let updated = (val << 1) + if cpu.C { 1 } else { 0 };
-            
             cpu.reg_set(s, idx, updated);
             cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
         },
@@ -88,10 +82,8 @@ fn handle_cb(cpu: &mut CPU, s: &mut State<impl BankController>, op: u8) -> u8 {
         0x08 | 0x09 | 0x0A | 0x0B | 0x0C | 0x0D | 0x0E | 0x0F => {
             let idx = op & 0x7;
             let val = cpu.reg(s, idx);
-
             cpu.C = val & 1 != 0;
             let updated = (val >> 1) + if cpu.C { 1 << 7 } else { 0 };
-            
             cpu.reg_set(s, idx, updated);
             cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
         },
@@ -99,10 +91,8 @@ fn handle_cb(cpu: &mut CPU, s: &mut State<impl BankController>, op: u8) -> u8 {
         0x10 | 0x11 | 0x12 | 0x13 | 0x14 | 0x15 | 0x16 | 0x17 => {
             let idx = op & 0x7;
             let val = cpu.reg(s, idx);
-
             let msb = val & 0x80 != 0;
             let updated = (Wrapping(val) << 1).0 + if cpu.C { 1 } else { 0 };
-            
             cpu.reg_set(s, idx, updated);
             cpu.C = msb; cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
         },
@@ -110,10 +100,8 @@ fn handle_cb(cpu: &mut CPU, s: &mut State<impl BankController>, op: u8) -> u8 {
         0x18 | 0x19 | 0x1A | 0x1B | 0x1C | 0x1D | 0x1E | 0x1F => {
             let idx = op & 0x7;
             let val = cpu.reg(s, idx);
-
             let lsb = val & 1 != 0;
             let updated = (val >> 1) + if cpu.C { 1 << 7 } else { 0 };
-            
             cpu.reg_set(s, idx, updated);
             cpu.C = lsb; cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
         },
@@ -121,10 +109,8 @@ fn handle_cb(cpu: &mut CPU, s: &mut State<impl BankController>, op: u8) -> u8 {
         0x20 | 0x21 | 0x22 | 0x23 | 0x24 | 0x25 | 0x26 | 0x27 => {
             let idx = op & 0x7;
             let val = cpu.reg(s, idx);
-
             cpu.C = val & 0x80 != 0;
             let updated = (Wrapping(val) << 1).0;
-            
             cpu.reg_set(s, idx, updated);
             cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
         },
@@ -132,16 +118,17 @@ fn handle_cb(cpu: &mut CPU, s: &mut State<impl BankController>, op: u8) -> u8 {
         0x28 | 0x29 | 0x2A | 0x2B | 0x2C | 0x2D | 0x2E | 0x2F => {
             let idx = op & 0x7;
             let val = cpu.reg(s, idx);
-
-            cpu.C = val & 1 != 0;            
-            cpu.Z = val == 0x00; cpu.H = false; cpu.N = false;
+            let msb = val & 0x80;
+            cpu.C = val & 1 != 0;
+            let updated = (val >> 1) + msb;
+            cpu.reg_set(s, idx, updated);           
+            cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
         },
         // SWAP - swap upper and lower nibbles of reg
         0x30 | 0x31 | 0x32 | 0x33 | 0x34 | 0x35 | 0x36 | 0x37 => {
             let idx = op & 0x7;
             let val = cpu.reg(s, idx);
             let updated = ((val & 0xF) << 4) + (val >> 4);
-            
             cpu.reg_set(s, idx, updated);
             cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false; cpu.C = false;
         },
@@ -149,10 +136,8 @@ fn handle_cb(cpu: &mut CPU, s: &mut State<impl BankController>, op: u8) -> u8 {
         0x38 | 0x39 | 0x3A | 0x3B | 0x3C | 0x3D | 0x3E | 0x3F => {
             let idx = op & 0x7;
             let val = cpu.reg(s, idx);
-
             cpu.C = val & 1 != 0;   
             let updated = val >> 1;
-
             cpu.reg_set(s, idx, updated);
             cpu.Z = updated == 0x00; cpu.H = false; cpu.N = false;
         },
@@ -165,8 +150,7 @@ fn handle_cb(cpu: &mut CPU, s: &mut State<impl BankController>, op: u8) -> u8 {
             let reg_idx = op & 0x7;
             let bit_idx = (op >> 3) & 0x7;
             let val = cpu.reg(s, reg_idx);
-
-            cpu.Z = (val & (1 << bit_idx)) != 0;
+            cpu.Z = (val & (1 << bit_idx)) == 0;
             cpu.N = false; cpu.H = true;
         },
         // RES
@@ -203,18 +187,18 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
     let (mnemo, size, f): (&str, u8, Box<InstructionHandler<T>>) = match op {
         /* Misc/Control instructions */
         0x00 => ("NOP",    1, Box::new(|_, _, _, _, _| 1)),
-        0x10 => ("STOP 0", 1, Box::new(|cpu, _, _, _, _| { cpu.STOP = true; 1 })),
+        0x10 => ("STOP 0", 2, Box::new(|cpu, _, _, _, _| { cpu.STOP = true; 1 })),
         0x76 => ("HALT",   1, Box::new(|cpu, _, _, _, _| { cpu.HALT = true; 1 })),
-        0xF4 => ("DI",     1, Box::new(|cpu, _, _, _, _| { cpu.IME = false; 1 })),
+        0xF3 => ("DI",     1, Box::new(|cpu, _, _, _, _| { cpu.IME = false; 1 })),
         0xFB => ("EI",     1, Box::new(|cpu, _, _, _, _| { cpu.IME = true; 1 })),
         // BCD adjust A
         0x27 => ("DAA", 1, Box::new(|cpu, _, _, _, _| {
             if cpu.N { // After subtract
-                if cpu.C || cpu.A > 0x99 { cpu.A += 0x60; cpu.C = true; }
-                if cpu.H || (cpu.A & 0xF) > 0x9 { cpu.A += 0x6; }
+                if cpu.C { cpu.A = safe_b_sub(cpu.A, 0x60); }
+                if cpu.H { cpu.A = safe_b_sub(cpu.A, 0x6); }
             } else { // After addition
-                if cpu.C { cpu.A -= 0x60; }
-                if cpu.H { cpu.A -= 0x6; }
+                if cpu.C || cpu.A > 0x99 { cpu.A = safe_b_add(cpu.A, 0x60); cpu.C = true; }
+                if cpu.H || (cpu.A & 0xF) > 0x9 { cpu.A = safe_b_add(cpu.A, 0x6); }
             }
             cpu.Z = cpu.A == 0x00;
             cpu.H = false;
@@ -311,10 +295,10 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
             cpu.HL.set(safe_w_add(cpu.HL.val(), 1));
             2 
         })),
-        // To (HL) from A with pre-decrement
+        // To (HL) from A with past-decrement
         0x32 => ("LD (HL-), A",    1, Box::new(|cpu, s, _, _, _| { 
-            cpu.HL.set(safe_w_sub(cpu.HL.val(), 1));
             s.safe_write(cpu.HL.val(), cpu.A); 
+            cpu.HL.set(safe_w_sub(cpu.HL.val(), 1));
             2 
         })),
         // To A from (BC)
@@ -327,10 +311,10 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
             cpu.HL.set(safe_w_add(cpu.HL.val(), 1));
             2 
         })),
-        // To A from (HL) with pre-decrement
+        // To A from (HL) with post-decrement
         0x3A => ("LD A, (HL-)",   1, Box::new(|cpu, s, _, _, _| { 
-            cpu.HL.set(safe_w_sub(cpu.HL.val(), 1));
             cpu.A = s.safe_read(cpu.HL.val()); 
+            cpu.HL.set(safe_w_sub(cpu.HL.val(), 1));
             2 
         })),
         // To B from d8
@@ -373,8 +357,7 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         0x31 => ("LD SP, d16", 3, Box::new(|cpu, _, _, op1, op2| { cpu.SP = word(op2, op1); 3 })),
         // To (a16) from SP
         0x08 => ("LD (a16), SP", 3, Box::new(|cpu, s, _, op1, op2| { 
-            let addr = word(op2, op1);
-            s.write_word(addr, cpu.SP);
+            s.write_word(word(op2, op1), cpu.SP);
             5 
         })),
         // Value of SP+r8 to HL
@@ -383,7 +366,7 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
             cpu.C = add_signed_carry(cpu.SP, op1);
             cpu.Z = false;
             cpu.N = false;
-            cpu.HL.set(safe_w_add(cpu.SP, op1 as u16));
+            cpu.HL.set(safe_signed_add(cpu.SP, op1));
             3
         })),
         // To SP from HL
@@ -513,13 +496,11 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         0xA0 | 0xA1 | 0xA2 | 0xA3 | 0xA4 | 0xA5 | 0xA6 | 0xA7 => ("AND A, reg", 1, Box::new(|cpu, s, op, _, _| {
             let idx = op & 0x7;
             let val = cpu.reg(s, idx);
-
             cpu.A &= val;
             cpu.N = false;
             cpu.H = true;
             cpu.C = false;
             cpu.Z = cpu.A == 0;
-
             if idx == ADDR_HL_IDX { 2 } else { 1 }
         })),
         // AND with immediate
@@ -564,7 +545,7 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         })),
         // OR with immediate
         0xF6 => ("OR A, d8", 2, Box::new(|cpu, _, _, val, _| {            
-            cpu.A ^= val;
+            cpu.A |= val;
             cpu.N = false;
             cpu.H = false;
             cpu.C = false;
@@ -583,6 +564,7 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         })),
         // Compare with immediate
         0xFE => ("CP A, d8", 2, Box::new(|cpu, _, _, val, _| {
+            //println!("COMPARSION WITH 0x{:x}", val);
             cpu.N = true;
             cpu.H = sub_b_hcarry(cpu.A, val);
             cpu.C = sub_b_carry(cpu.A, val);
@@ -594,29 +576,23 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
             let (n1, n2) = (op >> 4, op & 0xF);
             let idx = 2*n1 + {if n2 == 0xC { 1 } else { 0 }};
             let val = cpu.reg(s, idx);
-
             cpu.N = false;
             cpu.H = add_b_hcarry(val, 1);
-            
             let val = safe_b_add(val, 1);
             cpu.Z = val == 0;
             cpu.reg_set(s, idx, val);
-            
             if idx == ADDR_HL_IDX { 2 } else { 1 }
         })),
-        // Decrements register 0b00111101
+        // Decrements register
         0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => ("DEC reg", 1, Box::new(|cpu, s, op, _, _| {
             let (n1, n2) = (op >> 4, op & 0xF);
             let idx = 2*n1 + {if n2 == 0xD { 1 } else { 0 }};
             let val = cpu.reg(s, idx);
-
             cpu.N = true;
-            cpu.H = sub_b_hcarry(cpu.A, 1);
-
+            cpu.H = sub_b_hcarry(val, 1);
             let val = safe_b_sub(val, 1);
             cpu.reg_set(s, idx, val);
             cpu.Z = val == 0;
-
             if idx == ADDR_HL_IDX { 2 } else { 1 }
         })),
         
@@ -625,7 +601,7 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         0x03 => ("INC BC", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_add(cpu.BC.val(), 1)); 2 })),
         0x13 => ("INC DE", 1, Box::new(|cpu, _, _, _, _| { cpu.DE.set(safe_w_add(cpu.DE.val(), 1)); 2 })),
         0x23 => ("INC HL", 1, Box::new(|cpu, _, _, _, _| { cpu.HL.set(safe_w_add(cpu.HL.val(), 1)); 2 })),
-        0x33 => ("INC SP", 1, Box::new(|cpu, _, _, _, _| { cpu.SP = safe_w_add(cpu.SP, 1); 2 })),
+        0x33 => ("INC SP", 1, Box::new(|cpu, _, _, _, _| { cpu.SP = safe_w_add(cpu.SP, 1);  2 })),
         // 16 bit decrements
         0x0B => ("DEC BC", 1, Box::new(|cpu, _, _, _, _| { cpu.BC.set(safe_w_sub(cpu.BC.val(), 1)); 2 })),
         0x1B => ("DEC DE", 1, Box::new(|cpu, _, _, _, _| { cpu.DE.set(safe_w_sub(cpu.DE.val(), 1)); 2 })),
@@ -883,7 +859,7 @@ impl CPU {
     pub fn new() -> Self { Default::default() }
 
     // step() executes single instruction and returns number of taken machine cycles
-    pub fn step<T: BankController>(&mut self, state: &mut State<T>) -> u64 {
+    pub fn step(&mut self, state: &mut State<impl BankController>) -> u64 {
         // If HALT or STOP set CPU executes NOPs without incrementing PC.
         if self.HALT || self.STOP { return 1 }
 
@@ -896,24 +872,23 @@ impl CPU {
         let op1 = if argc >= 1 { state.safe_read(pc+1) } else { 0 };
         let op2 = if argc >= 2 { state.safe_read(pc+2) } else { 0 };
 
-        // println!("PC: 0x{:X}, OP: 0x{:x}, INST: {}, HL: 0x{:x}, B: 0x{:x}, A: 0x{:x}", pc, op, mnemo, self.HL.val(), self.BC.up(), self.A);
+        //println!("PC: 0x{:X}, OP: 0x{:x}, INST: {}, HL: 0x{:x}, B: 0x{:x}, A: 0x{:x}", pc, op, mnemo, self.HL.val(), self.BC.up(), self.A);
 
-        // println!("Executing '{}' with size {}.", mnemo, size);
         self.PC.set(safe_w_add(self.PC.val(), size as u16));
         f(self, state, op, op1, op2) as u64
     }
 
     // interrupts() will check for interrupt requests and pass control to appropriate ISR(Interrupt Service Routine)
-    // If HALT=true -> any enabled interrupt will reset HALT
+    // If HALT=true -> any enabled interrupt will reset HALT, but IF IME=0 - no jump performed
     // If STOP=true -> only joypad interrupt will reset STOP
     // Not sure how these things work when interrupts disabled in IE.
-    pub fn interrupts<T: BankController>(&mut self, state: &mut State<T>) -> u64 {
+    pub fn interrupts(&mut self, state: &mut State<impl BankController>) -> u64 {
         /*
          * IME - Interrupt Master Enable Flag
          * 0 - Disable all Interrupts
          * 1 - Enable all Interrupts that are enabled in IE Register (FFFF)
          */
-        if !self.IME { return 0 }
+        if !self.STOP && !self.HALT && !self.IME { return 0 }
 
         let in_e = state.safe_read(ioregs::IE);
         let in_f = state.safe_read(ioregs::IF);
@@ -921,28 +896,23 @@ impl CPU {
 
         for bit in 0..IVT_SIZE {
             // If it's stopped only JOYPAD interrupt can resume.
-            if self.STOP && bit != JOYPAD_INT { continue; }
-
+            if self.STOP && bit != JOYPAD_INT { break; }
             if is_requested(bit)  {
-                self.IME = false;
                 self.HALT = false;
                 self.STOP = false;
-                state.mmu.set_bit(ioregs::IF, bit as u8, false);
 
-                // Put PC on the stack
-                state.safe_write(self.SP, self.PC.up());
-                state.safe_write(self.SP - 1, self.PC.low());
-                self.SP -= 2;
-
-                // Set PC to 0x00NN
-                self.PC.set_low(IVT[bit]);
-                self.PC.set_up(0x00);
+                // Call interrupt routine
+                if self.IME { 
+                    state.mmu.set_bit(ioregs::IF, bit as u8, false);
+                    self.call(state, IVT[bit] as u16); 
+                    self.IME = false;
+                }
+                //println!("JUMPED TO 0x{:x} WITH INTERRUPT {}", self.PC.val(), bit);
 
                 // http://gbdev.gg8.se/wiki/articles/Interrupts - they say control passing to ISR should take 5 cycles
                 return 5
             }
         }
-
         0
     }
 
@@ -1009,13 +979,13 @@ impl CPU {
     }
 
     fn push_u16(&mut self, state: &mut State<impl BankController>, val: u16) {
-        self.SP -= 2;
+        self.SP = safe_w_sub(self.SP, 2);
         state.write_word(self.SP, val);
     }
 
     fn pop_u16(&mut self, state: &mut State<impl BankController>) -> u16 {
         let val = state.read_word(self.SP);
-        self.SP += 2;
+        self.SP = safe_w_add(self.SP, 2);
         val
     }
 }

@@ -25,7 +25,6 @@ impl <T: BankController>Clocked<T> for Timer {
     fn next_time(&self, _: &mut MMU<T>) -> u64 { 1 }
 
     fn step(&mut self, mmu: &mut MMU<T>) { 
-        
         // DIV is clocked by 16384Hz clock
         if self.div_cycle % STEPS_16384HZ == 0 {
             let div = Timer::DIV(mmu);
@@ -35,7 +34,7 @@ impl <T: BankController>Clocked<T> for Timer {
         }
         self.div_cycle += 1;
 
-        if Timer::STOPPED(mmu) { return };
+        if !Timer::ENABLED(mmu) { return };
 
         let mode = Timer::MODE(mmu);
         let mut check_ticks = |steps: u64| {
@@ -69,7 +68,7 @@ impl <T: BankController>Clocked<T> for Timer {
 impl Timer {
     pub fn new() -> Self { Self { div_cycle: 1, tima_cycle: 1 } }
 
-    fn timer_int<T: BankController>(mmu: &mut MMU<T>) { mmu.set_bit(ioregs::IF, 2, true); }
+    fn timer_int<T: BankController>(mmu: &mut MMU<T>) {  mmu.set_bit(ioregs::IF, 2, true); }
 
     /* Called when something from outside writes to DIV. */
     pub fn reset_internal_div(&mut self) { self.div_cycle = 1; }
@@ -94,8 +93,8 @@ impl Timer {
     fn _TIMA<T: BankController>(mmu: &mut MMU<T>, val: u8) { mmu.write(ioregs::TIMA, val); }
     pub fn _TMA<T: BankController>(mmu: &mut MMU<T>, val: u8) { mmu.write(ioregs::TMA, val); }
 
-    pub fn STOPPED<T: BankController>(mmu: &mut MMU<T>) -> bool { mmu.read_bit(ioregs::TAC, 2) }
-    pub fn _STOPPED<T: BankController>(mmu: &mut MMU<T>, flg: bool) { mmu.set_bit(ioregs::TAC, 2, flg); }
+    pub fn ENABLED<T: BankController>(mmu: &mut MMU<T>) -> bool { mmu.read_bit(ioregs::TAC, 2) }
+    pub fn _ENABLED<T: BankController>(mmu: &mut MMU<T>, flg: bool) { mmu.set_bit(ioregs::TAC, 2, flg); }
 
 /*
     Bits 1+0 - Input Clock Select

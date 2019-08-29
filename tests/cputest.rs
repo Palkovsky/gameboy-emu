@@ -23,6 +23,37 @@ mod cputest {
     }
 
     #[test]
+    fn sp_hl_instructions(){
+        let values: [u16; 15] = [
+            0x0000, 0x0001, 0x000F, 0x0010, 0x001F, 0x007F, 0x0080, 0x00FF,
+            0x0100, 0x0F00, 0x1F00, 0x1000, 0x7FFF, 0x8000, 0xFFFF   
+        ];
+
+        for value in values.into_iter() {
+            let mut runtime = gen_with_code(vec![
+                0x33, // INC SP
+                0x3B, // DEC SP
+                0x39, // ADD HL, SP
+                0xF9, // LD SP, HL
+                0xE8, 0x01, // ADD SP, 1
+                0xE8, 0xFF, // ADD SP, -1
+                0xF8, 0x01, // LD HL, SP+1
+                0xF8, 0xFF, // LD HL, SP-1,
+            ]);
+
+            runtime.cpu.SP = *value;
+            runtime.cpu.HL.set(0x0000);
+            
+            println!("SP: 0x{:x} | HL: 0x{:x}", runtime.cpu.SP, runtime.cpu.HL.val());
+            for _ in 0..8 { 
+                runtime.step();
+                println!("SP: 0x{:x} | HL: 0x{:x}", runtime.cpu.SP, runtime.cpu.HL.val());
+            }
+            assert_eq!(runtime.cpu.SP, *value);
+        }
+    }
+
+    #[test]
     fn cb_instructions() {
         let mut runtime = gen_with_code(vec![
             0x3E, 0x00, // LD A, 0x00
