@@ -13,7 +13,6 @@ pub const VBLANK_HEIGHT: usize = 10;
  * MODE 2 - OAM SEARCH
  * MODE 3 - LCD TRANSFER
  */
-
 const OAM_SEARCH_CYCLES: u64 = 20;
 const LCD_TRANSFER_CYCLES: u64 = 43;
 const HBLANK_CYCLES: u64 = 51;
@@ -28,6 +27,7 @@ pub const TILE_MAP_2: u16 = 0x9C00;
 pub const TILE_BLOCK_1: u16 = 0x8000;
 pub const TILE_BLOCK_2: u16 = 0x9000;
 pub const TILE_SIZE: u16 = 16;
+pub const SPRITE_COUNT: usize = 40;
 
 pub type Color = (u8, u8, u8);
 pub const WHITE: Color = (255, 255, 255);
@@ -46,16 +46,46 @@ fn get_color(num: u8) -> Color {
     }
 }
 
+#[derive(Copy, Clone, Debug, Default)]
+pub struct Sprite {
+    y: u8,
+    x: u8,
+    tile_idx: u8,
+    priority: bool,
+    y_flip: bool,
+    x_flip: bool,
+    palette: bool,
+}
+
+fn read_oam(mmu: &mut MMU<impl BankController>, sprites: &mut [Sprite; SPRITE_COUNT]) {
+    let oam = &mmu.oam;
+    let mut off = 0;
+    for i in 0..SPRITE_COUNT {
+        let sprite: &mut Sprite = &mut sprites[i];
+        sprite.y = oam[off];
+        sprite.x = oam[off+1];
+        sprite.tile_idx = oam[off+2];
+        let flg = oam[off+3];
+        sprite.priority = flg & 0x80 != 0;
+        sprite.y_flip   = flg & 0x40 != 0;
+        sprite.x_flip   = flg & 0x20 != 0;
+        sprite.palette  = flg & 0x10 != 0;
+        off += 4;
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum GPUMode {
     HBLANK, VBLANK, OAM_SEARCH, LCD_TRANSFER,
 }
+
 impl Default for GPUMode {
     fn default() -> Self { GPUMode::OAM_SEARCH }
 }
 
 pub struct GPU {
     ly: u8,
+    pub sprites: [Sprite; SPRITE_COUNT],
     pub framebuff: Vec<Color>,
 }
 
@@ -74,6 +104,7 @@ impl <T: BankController>Clocked<T> for GPU {
         self.update(mmu);
         match GPU::MODE(mmu) {
             GPUMode::OAM_SEARCH => {
+                read_oam(mmu, &mut self.sprites);
                 if GPU::COINCIDENCE_INTERRUPT_ENABLE(mmu) && GPU::COINCIDENCE_FLAG(mmu) {
                     GPU::stat_int(mmu);
                 }
@@ -86,7 +117,6 @@ impl <T: BankController>Clocked<T> for GPU {
             GPUMode::HBLANK => {
                 self.ly += 1;
                 self.update(mmu);
-
                 if self.ly == SCREEN_HEIGHT as u8 {
                     GPU::_MODE(mmu, GPUMode::VBLANK);
                     GPU::vblank_int(mmu);
@@ -112,6 +142,7 @@ impl GPU {
     pub fn new<T: BankController>(mmu: &mut MMU<T>) -> Self {
         let mut res = Self {
             ly: 0,
+            sprites: [Default::default(); SPRITE_COUNT],
             framebuff: vec![WHITE; SCREEN_WIDTH*SCREEN_HEIGHT],
         };
       
@@ -125,19 +156,17 @@ impl GPU {
     fn scanline(&mut self, mmu: &mut MMU<impl BankController>) { 
         let mut lx = 0usize;
         let ly = self.ly as usize;
-        
         let scx = GPU::SCX(mmu) as usize;
         let scy = GPU::SCY(mmu) as usize;
-
         let wx = GPU::WX(mmu) as usize;
         let wy = GPU::WY(mmu) as usize;
+        
         let win_enabled = GPU::WINDOW_ENABLED(mmu) &&
                           ly >= wy && 
-                          wx >= 7 &&
                           wx <= SCREEN_WIDTH + 7 &&
                           wy <= SCREEN_HEIGHT;
-        let in_window = |lx: usize| win_enabled && lx >= wx - 7;
 
+        let in_window = |lx: usize| win_enabled && lx >= wx - 7;
         let tile_addressing = GPU::TILE_ADDRESSING(mmu);
         let window_tile_map = (if GPU::WINDOW_TILE_MAP(mmu) 
             { TILE_MAP_2 } else { TILE_MAP_1 } - VRAM_ADDR) as usize;
@@ -146,25 +175,24 @@ impl GPU {
 
         while lx < SCREEN_WIDTH {
             let window = in_window(lx);
-
             // Coordinates of tile to fetch.
             let (x, y, tile_map) = match window {
-                true => (lx + 7, ly, window_tile_map), // Not sure if it should be 'lx+7' or jsut 'lx'
+                true => (lx+7, ly, window_tile_map), // Not sure if it should be 'lx+7' or jsut 'lx'
                 false => ((scx + lx) % 256, (scy + ly) % 256, bg_tile_map),                
             };
 
             let x_tile = x/8;
             let y_tile = y/8;
             let off = (32*y_tile + x_tile) % 1024;
-            let tile_no = mmu.vram[tile_map + off] as u16;
+            let tile_no = mmu.vram[tile_map + off];
 
             // By using tile number, fetch tile data from VRAM
             let tile_addr = match (tile_addressing, tile_no) {
                 // 8000-8FFF unsigned addressing
-                (true, tile) => TILE_BLOCK_1 + TILE_SIZE*tile,
+                (true, tile) => TILE_BLOCK_1 + TILE_SIZE*(tile as u16),
                 // 8800 signed addressing
-                (false, tile) if tile < 0x80 => TILE_BLOCK_2 + TILE_SIZE*tile,
-                (false, tile) if tile >= 0x80 => TILE_BLOCK_2 - TILE_SIZE*(tile - 0x80),
+                (false, tile) if (tile as i8) >= 0 => TILE_BLOCK_2 + TILE_SIZE*(tile as u16),
+                (false, tile) if (tile as i8) <  0 => TILE_BLOCK_2 - TILE_SIZE*((-(tile as i8)) as u16),
                 // Won't happen
                 (a, b) => { panic!("Invalid tile addressing pattern: ({}, {})", a, b) }
             } - VRAM_ADDR as u16;
@@ -181,7 +209,7 @@ impl GPU {
             // Which col we want to render?
             let tile_col = (x - x_tile*8) as u16;
 
-            //println!("LX {}, X {}", idx, lx, x);
+            //println!("LX {}, X {}", off, lx, x);
 
             for off in tile_col..8 {    
                 if lx >= SCREEN_WIDTH { break; }

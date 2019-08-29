@@ -907,7 +907,7 @@ impl CPU {
                     self.call(state, IVT[bit] as u16); 
                     self.IME = false;
                 }
-                //println!("JUMPED TO 0x{:x} WITH INTERRUPT {}", self.PC.val(), bit);
+                // println!("JUMPED TO 0x{:x} WITH INTERRUPT {}", self.PC.val(), bit);
 
                 // http://gbdev.gg8.se/wiki/articles/Interrupts - they say control passing to ISR should take 5 cycles
                 return 5

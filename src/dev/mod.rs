@@ -7,6 +7,9 @@ pub use gpu::*;
 pub mod timer;
 pub use timer::*;
 
+pub mod dma;
+pub use dma::*;
+
 use super::{BankController, MMU, State};
 use super::mem::ioregs;
 

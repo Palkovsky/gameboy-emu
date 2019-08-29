@@ -17,27 +17,40 @@ impl <T: BankController>Runtime<T> {
     pub fn new(mapper: T) -> Self {
         let state = State::new(mapper);
         let cpu = CPU::new();
-        Self { cpu: cpu, state: state, cpu_cycles: 0, gpu_cycles: 0, timer_cycles: 0 }
+        Self { 
+            cpu: cpu, state: state,
+            cpu_cycles: 0,
+            gpu_cycles: 0, 
+            timer_cycles: 0, 
+        }
     }
 
     pub fn step(&mut self) {
         self.cpu_cycles += self.cpu.step(&mut self.state);
-
-        // GPU catchup
-        let next_gpu = self.state.gpu.next_time(&mut self.state.mmu);
-        while self.gpu_cycles + next_gpu  < self.cpu_cycles {
-            self.gpu_cycles += next_gpu;
-            self.state.gpu.step(&mut self.state.mmu);
+        self.gpu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.gpu, self.cpu_cycles, self.gpu_cycles);
+        self.timer_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.timer, self.cpu_cycles, self.timer_cycles);
+        
+        // If there's DMA transfer pending, just do it instantly.
+        if self.state.dma.active() {
+            println!("BEFORE DMA");
+            for sprite in self.state.gpu.sprites.iter() { println!("{:?}", *sprite); }
+            self.state.dma.step(&mut self.state.mmu);
+            println!("AFTER DMA");
+            for sprite in self.state.gpu.sprites.iter() { println!("{:?}", *sprite); }
         }
-
-        // Timer catchup
-        let next_timer = self.state.timer.next_time(&mut self.state.mmu);
-        while self.timer_cycles + next_timer < self.cpu_cycles {
-            self.timer_cycles += next_timer;
-            self.state.timer.step(&mut self.state.mmu);
-        }
-
+        
         self.cpu_cycles += self.cpu.interrupts(&mut self.state);
+    }
+
+    fn catchup(mmu: &mut MMU<T>, dev: &mut impl Clocked<T>, cpu_clk: u64, dev_clk: u64) -> u64 {
+        let mut next = dev.next_time(mmu);
+        let mut dev_new = dev_clk;
+        while dev_new + next < cpu_clk {
+            dev_new += next;
+            dev.step(mmu);
+            next = dev.next_time(mmu);
+        }
+        dev_new
     }
 }
 
@@ -49,6 +62,7 @@ impl <T: BankController>Runtime<T> {
 pub struct State<T: BankController> {
     pub gpu: GPU,
     pub timer: Timer,
+    pub dma: DMA,
     pub mmu: MMU<T>,
 }
 
@@ -57,7 +71,8 @@ impl <T: BankController>State<T> {
         let mut mmu = MMU::new(mapper);
         let gpu = GPU::new(&mut mmu);
         let timer = Timer::new();     
-        Self { mmu: mmu, gpu: gpu, timer: timer }
+        let dma = DMA::new();
+        Self { mmu: mmu, gpu: gpu, timer: timer, dma: dma }
     }
 
     pub fn safe_write(&mut self, addr: Addr, value: Byte) {
@@ -75,6 +90,8 @@ impl <T: BankController>State<T> {
                 self.timer.reset_internal_div();
             },
             TIMA => self.timer.reset_internal_tima(),
+            // Write to DMA register starts DMA transfer
+            ioregs::DMA => self.dma.start(),
             _ => {},
         }
     }
@@ -89,6 +106,11 @@ impl <T: BankController>State<T> {
             println!("Tried reading from restricted memory at 0x{:x}", addr);  
             return 0xFF
         }
+
+        // No keys pressed
+        // ex. Tetris goes crazy if 0 was returned here
+        if addr == ioregs::P1 { return 0xFF }
+        
         self.mmu.read(addr)
     }
 
