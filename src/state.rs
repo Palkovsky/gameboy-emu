@@ -32,11 +32,11 @@ impl <T: BankController>Runtime<T> {
         
         // If there's DMA transfer pending, just do it instantly.
         if self.state.dma.active() {
-            println!("BEFORE DMA");
-            for sprite in self.state.gpu.sprites.iter() { println!("{:?}", *sprite); }
+            //println!("BEFORE DMA");
+            //for sprite in self.state.gpu.sprites.iter() { println!("{:?}", *sprite); }
             self.state.dma.step(&mut self.state.mmu);
-            println!("AFTER DMA");
-            for sprite in self.state.gpu.sprites.iter() { println!("{:?}", *sprite); }
+            //println!("AFTER DMA");
+            //for sprite in self.state.gpu.sprites.iter() { println!("{:?}", *sprite); }
         }
         
         self.cpu_cycles += self.cpu.interrupts(&mut self.state);

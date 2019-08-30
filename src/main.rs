@@ -33,12 +33,12 @@ fn main() {
     //    .take(0x150).skip(0x100)
     //    .map(|x| *x).collect());
     //println!("{}", header);
-/*
-    let mut runtime = Runtime::new(mbc::MBC3::new(rom));
+
+    let mut runtime = Runtime::new(mbc::RomOnly::new(rom));
     runtime.state.mmu.disable_bootrom();
     runtime.cpu.PC.set(0x100);
-*/
-    let mut runtime = Runtime::new(mbc::RomOnly::new(rom));
+
+    //let mut runtime = Runtime::new(mbc::RomOnly::new(rom));
     
 
     let sdl_context = sdl2::init().unwrap();
@@ -55,7 +55,7 @@ fn main() {
     'emulating: loop {
         let now = Instant::now();
         
-        for _ in 0..12000 { runtime.step(); }
+        for _ in 0..8000 { runtime.step(); }
 
         for event in events.poll_iter() {
             if let Event::Quit {..}  |  Event::KeyDown { keycode: Some(Keycode::Escape), .. } = event {
