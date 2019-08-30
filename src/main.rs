@@ -8,9 +8,9 @@ pub mod state;
 pub use state::*;
 
 use std::io::prelude::*;
-use std::time::{Instant};
+use std::time::{Instant, Duration};
 use std::num::Wrapping;
-use std::{env, fs, io};
+use std::{env, fs, io, thread};
 
 use sdl2::pixels::Color;
 use sdl2::event::Event;
@@ -46,16 +46,15 @@ fn main() {
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem.window(WINDOW_NAME, SCALE * SCREEN_WIDTH as u32, SCALE * SCREEN_HEIGHT as u32)
         .position_centered()
-        .opengl()
         .build()
         .map_err(|e| e.to_string())
         .unwrap();
     let mut events = sdl_context.event_pump().unwrap();
-    let mut canvas = window.into_canvas().build().map_err(|e| e.to_string()).unwrap();
+    let mut canvas = window.into_canvas().software().build().map_err(|e| e.to_string()).unwrap();
     
     'emulating: loop {
         let now = Instant::now();
-        
+    
         let keyboard = events.keyboard_state();
         runtime.state.joypad.up(keyboard.is_scancode_pressed(Scancode::W) | keyboard.is_scancode_pressed(Scancode::Up));
         runtime.state.joypad.down(keyboard.is_scancode_pressed(Scancode::S) | keyboard.is_scancode_pressed(Scancode::Down));
@@ -79,7 +78,10 @@ fn main() {
         println!("Internal: {}ms", now.elapsed().as_millis());
         mmu.reads = 0;
         mmu.writes = 0;
+
+
         let now = Instant::now();
+        canvas.clear();
 
         for (i, (r, g, b)) in gpu.framebuff.iter().enumerate() {
             let y = i/SCREEN_WIDTH;
