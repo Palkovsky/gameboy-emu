@@ -26,26 +26,24 @@ impl <T: BankController>Runtime<T> {
     }
 
     pub fn step(&mut self) {
-        for _ in 0..100 {
-            for _ in 0..100 {
-                self.cpu_cycles += self.cpu.step(&mut self.state);
-                self.state.joypad.step(&mut self.state.mmu);
-            }
+        const target: u64 = 1000000/60;
 
+        while self.cpu_cycles < target {
+            for _ in 0..10 {
+                self.state.joypad.step(&mut self.state.mmu);
+                self.cpu_cycles += self.cpu.step(&mut self.state);
+            }
+            if self.state.dma.active() {
+                self.state.dma.step(&mut self.state.mmu);
+            }   
             self.gpu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.gpu, self.cpu_cycles, self.gpu_cycles);
             self.timer_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.timer, self.cpu_cycles, self.timer_cycles);
-            
-            // If there's DMA transfer pending, just do it instantly.
-            if self.state.dma.active() {
-                //println!("BEFORE DMA");
-                //for sprite in self.state.gpu.sprites.iter() { println!("{:?}", *sprite); }
-                self.state.dma.step(&mut self.state.mmu);
-                //println!("AFTER DMA");
-                //for sprite in self.state.gpu.sprites.iter() { println!("{:?}", *sprite); }
-            }     
-
             self.cpu_cycles += self.cpu.interrupts(&mut self.state);   
         }
+
+        self.cpu_cycles = 0;
+        self.gpu_cycles = 0;
+        self.timer_cycles = 0;
     }
 
     fn catchup(mmu: &mut MMU<T>, dev: &mut impl Clocked<T>, cpu_clk: u64, dev_clk: u64) -> u64 {
