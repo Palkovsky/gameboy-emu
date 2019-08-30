@@ -18,6 +18,7 @@ const LCD_TRANSFER_CYCLES: u64 = 43;
 const HBLANK_CYCLES: u64 = 51;
 const SCANLINE_CYCLES: u64 = OAM_SEARCH_CYCLES + LCD_TRANSFER_CYCLES + HBLANK_CYCLES;
 const VBLANK_CYCLES: u64 = SCANLINE_CYCLES * VBLANK_HEIGHT as u64;
+pub const FRAME_CYCLES: u64 = SCANLINE_CYCLES*(VBLANK_HEIGHT+SCREEN_HEIGHT) as u64;
 
 pub const SCANLINE_STEPS: u64 = 3; // OAM -> LCD -> HBLANK -> (OAM -> LCD -> HBLANK ->)
 pub const FRAME_STEPS: u64 = SCREEN_HEIGHT as u64*SCANLINE_STEPS + 1;
@@ -86,7 +87,7 @@ impl Default for GPUMode {
 }
 
 pub struct GPU {
-    ly: u8,
+    pub ly: u8,
     pub sprites: [Sprite; SPRITE_COUNT],
     sprites_line: [usize; SCANLINE_SPRITE_COUNT],
     pub framebuff: Vec<Color>,
@@ -214,6 +215,7 @@ impl GPU {
 
         while lx < SCREEN_WIDTH {
             let window = in_window(lx);
+
             // Coordinates of tile to fetch.
             let (x, y, tile_map) = match window {
                 true => (lx+7, ly, window_tile_map), // Not sure if it should be 'lx+7' or jsut 'lx'

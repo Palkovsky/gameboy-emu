@@ -105,7 +105,6 @@ impl <T: BankController>MMU<T> {
     }
 
     fn write_switchable_ram(&mut self, addr: Addr, offset: usize, value: Byte) {
-        println!("{:x}", addr);
         match self.mapper.get_addr_type(addr) {
             AddrType::Status => panic!("Unable to send status at RAM address 0x{:X}", addr),
             AddrType::Write => match self.mapper.get_switchable_ram() {

@@ -29,12 +29,13 @@ fn main() {
     let mut rom = Vec::new();
     file.read_to_end(&mut rom).unwrap();
 
-    //let header = CartHeader::new(rom.iter()
-    //    .take(0x150).skip(0x100)
-    //    .map(|x| *x).collect());
-    //println!("{}", header);
+    let header = CartHeader::new(rom.iter()
+        .take(0x150).skip(0x100)
+        .map(|x| *x).collect());
+    println!("{}", header);
 
-    let mut runtime = Runtime::new(mbc::RomOnly::new(rom));
+    // Mapper type shouldn't be hardcoded here
+    let mut runtime = Runtime::new(mbc::MBC1::new(rom));
     runtime.state.mmu.disable_bootrom();
     runtime.cpu.PC.set(0x100);
 
@@ -55,7 +56,16 @@ fn main() {
     'emulating: loop {
         let now = Instant::now();
         
-        for _ in 0..12000 { runtime.step(); }
+        let keyboard = events.keyboard_state();
+        runtime.state.joypad.up(keyboard.is_scancode_pressed(Scancode::W) | keyboard.is_scancode_pressed(Scancode::Up));
+        runtime.state.joypad.down(keyboard.is_scancode_pressed(Scancode::S) | keyboard.is_scancode_pressed(Scancode::Down));
+        runtime.state.joypad.left(keyboard.is_scancode_pressed(Scancode::A) | keyboard.is_scancode_pressed(Scancode::Left));
+        runtime.state.joypad.right(keyboard.is_scancode_pressed(Scancode::D) | keyboard.is_scancode_pressed(Scancode::Right));
+        runtime.state.joypad.a(keyboard.is_scancode_pressed(Scancode::Z));
+        runtime.state.joypad.b(keyboard.is_scancode_pressed(Scancode::X));
+        runtime.state.joypad.select(keyboard.is_scancode_pressed(Scancode::Space));
+        runtime.state.joypad.start(keyboard.is_scancode_pressed(Scancode::Return) | keyboard.is_scancode_pressed(Scancode::Return2));
+        runtime.step(); 
 
         for event in events.poll_iter() {
             if let Event::Quit {..}  |  Event::KeyDown { keycode: Some(Keycode::Escape), .. } = event {
@@ -63,24 +73,13 @@ fn main() {
             }
         }
 
-        let joypad = &mut runtime.state.joypad;
-        let keyboard = events.keyboard_state();
-
-        joypad.up(keyboard.is_scancode_pressed(Scancode::W) | keyboard.is_scancode_pressed(Scancode::Up));
-        joypad.down(keyboard.is_scancode_pressed(Scancode::S) | keyboard.is_scancode_pressed(Scancode::Down));
-        joypad.left(keyboard.is_scancode_pressed(Scancode::A) | keyboard.is_scancode_pressed(Scancode::Left));
-        joypad.right(keyboard.is_scancode_pressed(Scancode::D) | keyboard.is_scancode_pressed(Scancode::Right));
-        joypad.a(keyboard.is_scancode_pressed(Scancode::Z));
-        joypad.b(keyboard.is_scancode_pressed(Scancode::X));
-        joypad.select(keyboard.is_scancode_pressed(Scancode::Space));
-        joypad.start(keyboard.is_scancode_pressed(Scancode::Return) | keyboard.is_scancode_pressed(Scancode::Return2));
-
         let gpu = &mut runtime.state.gpu;
         let mmu = &mut runtime.state.mmu;
 
-        //println!("{}ms/frame | Rs: {} | Ws: {}", now.elapsed().as_millis(), mmu.reads, mmu.writes);
+        println!("Internal: {}ms", now.elapsed().as_millis());
         mmu.reads = 0;
         mmu.writes = 0;
+        let now = Instant::now();
 
         for (i, (r, g, b)) in gpu.framebuff.iter().enumerate() {
             let y = i/SCREEN_WIDTH;
@@ -101,5 +100,6 @@ fn main() {
         }
   */      
         canvas.present();
+        println!("SDL : {}ms", now.elapsed().as_millis());
     } 
 }
