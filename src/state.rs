@@ -30,6 +30,8 @@ impl <T: BankController>Runtime<T> {
         self.gpu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.gpu, self.cpu_cycles, self.gpu_cycles);
         self.timer_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.timer, self.cpu_cycles, self.timer_cycles);
         
+        self.state.joypad.step(&mut self.state.mmu);
+
         // If there's DMA transfer pending, just do it instantly.
         if self.state.dma.active() {
             //println!("BEFORE DMA");
@@ -63,6 +65,7 @@ pub struct State<T: BankController> {
     pub gpu: GPU,
     pub timer: Timer,
     pub dma: DMA,
+    pub joypad: Joypad,
     pub mmu: MMU<T>,
 }
 
@@ -70,9 +73,10 @@ impl <T: BankController>State<T> {
     pub fn new(mapper: T) -> Self {
         let mut mmu = MMU::new(mapper);
         let gpu = GPU::new(&mut mmu);
-        let timer = Timer::new();     
+        let timer = Timer::new();
         let dma = DMA::new();
-        Self { mmu: mmu, gpu: gpu, timer: timer, dma: dma }
+        let joypad = Joypad::new();     
+        Self { mmu: mmu, gpu: gpu, timer: timer, dma: dma, joypad: joypad }
     }
 
     pub fn safe_write(&mut self, addr: Addr, value: Byte) {
@@ -106,11 +110,6 @@ impl <T: BankController>State<T> {
             println!("Tried reading from restricted memory at 0x{:x}", addr);  
             return 0xFF
         }
-
-        // No keys pressed
-        // ex. Tetris goes crazy if 0 was returned here
-        if addr == ioregs::P1 { return 0xFF }
-        
         self.mmu.read(addr)
     }
 

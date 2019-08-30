@@ -10,6 +10,9 @@ pub use timer::*;
 pub mod dma;
 pub use dma::*;
 
+pub mod joypad;
+pub use joypad::*;
+
 use super::{BankController, MMU, State};
 use super::mem::ioregs;
 

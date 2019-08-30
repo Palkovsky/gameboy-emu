@@ -14,7 +14,7 @@ use std::{env, fs, io};
 
 use sdl2::pixels::Color;
 use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
+use sdl2::keyboard::{Keycode, Scancode};
 use sdl2::rect::Rect;
 
 const WINDOW_NAME: &str = "GAMEBOY EMU";
@@ -55,54 +55,25 @@ fn main() {
     'emulating: loop {
         let now = Instant::now();
         
-        for _ in 0..8000 { runtime.step(); }
+        for _ in 0..12000 { runtime.step(); }
 
         for event in events.poll_iter() {
             if let Event::Quit {..}  |  Event::KeyDown { keycode: Some(Keycode::Escape), .. } = event {
                  break 'emulating; 
             }
-
-            let update = 4;
-            let mmu = &mut runtime.state.mmu;
-            match event {
-                // SCX/SCY controls
-                Event::KeyDown { keycode: Some(Keycode::A), .. } => { 
-                    let scx = Wrapping(mmu.read(SCX)) - Wrapping(update);
-                    mmu.write(ioregs::SCX, scx.0);
-                },
-                Event::KeyDown { keycode: Some(Keycode::D), .. } => { 
-                    let scx = Wrapping(mmu.read(SCX)) + Wrapping(update);
-                    mmu.write(ioregs::SCX, scx.0);
-                },
-                Event::KeyDown { keycode: Some(Keycode::W), .. } => { 
-                    let scy = Wrapping(mmu.read(SCY)) - Wrapping(update);
-                    mmu.write(ioregs::SCY, scy.0);
-                },
-                Event::KeyDown { keycode: Some(Keycode::S), .. } => { 
-                    let scy = Wrapping(mmu.read(SCY)) + Wrapping(update);
-                    mmu.write(ioregs::SCY, scy.0);
-                },
-
-                // Window WX/WY controls
-                Event::KeyDown { keycode: Some(Keycode::Left), .. } => { 
-                    let wx = Wrapping(mmu.read(WX)) - Wrapping(update);
-                    mmu.write(ioregs::WX, wx.0);
-                },
-                Event::KeyDown { keycode: Some(Keycode::Right), .. } => { 
-                    let wx = Wrapping(mmu.read(WX)) + Wrapping(update);
-                    mmu.write(ioregs::WX, wx.0);
-                },
-                Event::KeyDown { keycode: Some(Keycode::Up), .. } => { 
-                    let wy = Wrapping(mmu.read(WY)) - Wrapping(update);
-                    mmu.write(ioregs::WY, wy.0);
-                },
-                Event::KeyDown { keycode: Some(Keycode::Down), .. } => { 
-                    let wy = Wrapping(mmu.read(WY)) + Wrapping(update);
-                    mmu.write(ioregs::WY, wy.0);
-                },
-                _ => {}
-            }
         }
+
+        let joypad = &mut runtime.state.joypad;
+        let keyboard = events.keyboard_state();
+
+        joypad.up(keyboard.is_scancode_pressed(Scancode::W) | keyboard.is_scancode_pressed(Scancode::Up));
+        joypad.down(keyboard.is_scancode_pressed(Scancode::S) | keyboard.is_scancode_pressed(Scancode::Down));
+        joypad.left(keyboard.is_scancode_pressed(Scancode::A) | keyboard.is_scancode_pressed(Scancode::Left));
+        joypad.right(keyboard.is_scancode_pressed(Scancode::D) | keyboard.is_scancode_pressed(Scancode::Right));
+        joypad.a(keyboard.is_scancode_pressed(Scancode::Z));
+        joypad.b(keyboard.is_scancode_pressed(Scancode::X));
+        joypad.select(keyboard.is_scancode_pressed(Scancode::Space));
+        joypad.start(keyboard.is_scancode_pressed(Scancode::Return) | keyboard.is_scancode_pressed(Scancode::Return2));
 
         let gpu = &mut runtime.state.gpu;
         let mmu = &mut runtime.state.mmu;

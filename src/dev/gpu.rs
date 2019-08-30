@@ -267,7 +267,6 @@ impl GPU {
 
             let vram = &mmu.vram[..];
             let mut sprite = self.sprites[idx];
-            sprite.y_flip = true;
             let mut col = sprite.x as usize;
             let mut row =  (ly+16) - sprite.y as usize;
             if sprite.y_flip {
@@ -299,7 +298,12 @@ impl GPU {
                     self.framebuff[pixel_idx] = color;
                 }
                 col += 1;
-                off = if sprite.x_flip { off-1 } else { off+1 };
+                off = if sprite.x_flip {
+                    if off == 0 { break; }
+                    off-1 
+                } else { 
+                    off+1 
+                };
             }
         }
     }
