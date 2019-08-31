@@ -17,7 +17,7 @@ use sdl2::keyboard::{Keycode, Scancode};
 use sdl2::rect::Rect;
 
 const WINDOW_NAME: &str = "GAMEBOY EMU";
-const SCALE: u32 = 4;
+const SCALE: u32 = 5;
 const FRAME_TIME: Duration = Duration::from_millis(1000/60);
 
 fn main() {
@@ -51,7 +51,7 @@ fn main() {
     let mut events = sdl_context.event_pump().unwrap();
     let mut canvas = window
         .into_canvas()
-        .software()
+        .accelerated()
         .build()
         .map_err(|e| e.to_string()).unwrap();
     

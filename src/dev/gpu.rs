@@ -32,9 +32,9 @@ pub const SPRITE_COUNT: usize = 40;
 pub const SCANLINE_SPRITE_COUNT: usize = 10;
 
 pub type Color = (u8, u8, u8);
-pub const WHITE: Color = (255, 255, 255);
-pub const LIGHT_GRAY: Color = (110, 123, 138);
-pub const DARK_GRAY: Color = (91, 97, 105);
+pub const WHITE: Color = (151, 134, 163);
+pub const LIGHT_GRAY: Color = (255, 210, 0);
+pub const DARK_GRAY: Color = (243, 0, 0);
 pub const BLACK: Color = (0, 0, 0);
 pub const TRANSPARENT: Color = (0, 255, 0);
 
@@ -101,10 +101,10 @@ impl <T: BankController>Clocked<T> for GPU {
     fn next_time(&self, mmu: &mut MMU<T>) -> u64 {
         // if !GPU::LCD_DISPLAY_ENABLE(mmu) { return 0 }
         match GPU::MODE(mmu) {
-            GPUMode::OAM_SEARCH => OAM_SEARCH_CYCLES,
+            GPUMode::OAM_SEARCH   => OAM_SEARCH_CYCLES,
             GPUMode::LCD_TRANSFER => LCD_TRANSFER_CYCLES,
-            GPUMode::HBLANK => HBLANK_CYCLES,
-            GPUMode::VBLANK => SCANLINE_CYCLES,
+            GPUMode::HBLANK       => HBLANK_CYCLES,
+            GPUMode::VBLANK       => SCANLINE_CYCLES,
         }
     }
 
@@ -306,7 +306,6 @@ impl GPU {
             let mut off = if sprite.x_flip { 7 } else { 0 };
             for _ in 0..8 {
                 let color = bytes_to_color_num(b1, b2, off);
-
                 if col >= 8 {
                     let pixel_idx = ly*SCREEN_WIDTH + col - 8;
                     // If priority bit set sprite will draw_sprite only over color 00.
@@ -314,7 +313,7 @@ impl GPU {
                     // Fetch new color based on palette
                     let color = if sprite.palette { GPU::obp1_color(mmu, color) } else { GPU::obp0_color(mmu, color) };
                     // Put it in the framebuff
-                    if color != TRANSPARENT {
+                    if pixel_idx < self.framebuff.len() && color != TRANSPARENT {
                         self.framebuff[pixel_idx] = color;
                     }
                 }
