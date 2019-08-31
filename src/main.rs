@@ -35,7 +35,7 @@ fn main() {
     println!("{}", header);
 
     // Mapper type shouldn't be hardcoded here
-    let mut runtime = Runtime::new(mbc::MBC1::new(rom));
+    let mut runtime = Runtime::new(mbc::MBC3::new(rom));
     runtime.state.mmu.disable_bootrom();
     runtime.cpu.PC.set(0x100);
 
