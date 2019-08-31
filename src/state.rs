@@ -1,5 +1,8 @@
 use super::*;
 
+/* CPU cycles per frame */
+const CPF: u64 = 1000000/60;
+
 /*
  * Runtime is used to connect CPU with everything stored in State(memory, IO devices).
  * I created it, cuz borrow checker yelld at me for doing something like this: self.cpu.step(self) // multiple mutable borrow
@@ -26,19 +29,16 @@ impl <T: BankController>Runtime<T> {
     }
 
     pub fn step(&mut self) {
-        const target: u64 = 1000000/60;
 
-        while self.cpu_cycles < target {
-            for _ in 0..10 {
-                self.state.joypad.step(&mut self.state.mmu);
-                self.cpu_cycles += self.cpu.step(&mut self.state);
-            }
+        while self.cpu_cycles < CPF {
+            self.cpu_cycles += self.cpu.interrupts(&mut self.state);   
+            self.cpu_cycles += self.cpu.step(&mut self.state);
+            self.state.joypad.step(&mut self.state.mmu);
             if self.state.dma.active() {
                 self.state.dma.step(&mut self.state.mmu);
             }   
             self.gpu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.gpu, self.cpu_cycles, self.gpu_cycles);
             self.timer_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.timer, self.cpu_cycles, self.timer_cycles);
-            self.cpu_cycles += self.cpu.interrupts(&mut self.state);   
         }
 
         self.cpu_cycles = 0;

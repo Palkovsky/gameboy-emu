@@ -50,7 +50,11 @@ fn main() {
         .map_err(|e| e.to_string())
         .unwrap();
     let mut events = sdl_context.event_pump().unwrap();
-    let mut canvas = window.into_canvas().software().build().map_err(|e| e.to_string()).unwrap();
+    let mut canvas = window
+        .into_canvas()
+        .software()
+        .build()
+        .map_err(|e| e.to_string()).unwrap();
     
     'emulating: loop {
         let now = Instant::now();
@@ -79,8 +83,8 @@ fn main() {
         mmu.reads = 0;
         mmu.writes = 0;
 
-
         let now = Instant::now();
+        canvas.set_draw_color(Color::RGB(255, 255, 255));
         canvas.clear();
 
         for (i, (r, g, b)) in gpu.framebuff.iter().enumerate() {

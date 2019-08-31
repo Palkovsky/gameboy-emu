@@ -36,7 +36,7 @@ pub const WHITE: Color = (255, 255, 255);
 pub const LIGHT_GRAY: Color = (110, 123, 138);
 pub const DARK_GRAY: Color = (91, 97, 105);
 pub const BLACK: Color = (0, 0, 0);
-pub const TRANSPARENT: Color = (0, 255, 0); // It will be recognized by renderer as transparent
+pub const TRANSPARENT: Color = (0, 255, 0);
 
 fn get_color(num: u8) -> Color {
     match num {
@@ -88,6 +88,10 @@ impl Default for GPUMode {
 
 pub struct GPU {
     pub ly: u8,
+    /* Keeps track of number of window lines rendered */
+    wy: u8,
+    /* Indicates wheater the window was drawn on current scanline */
+    win_rendered: bool,
     pub sprites: [Sprite; SPRITE_COUNT],
     sprites_line: [usize; SCANLINE_SPRITE_COUNT],
     pub framebuff: Vec<Color>,
@@ -108,16 +112,16 @@ impl <T: BankController>Clocked<T> for GPU {
         self.update(mmu);
         match GPU::MODE(mmu) {
             GPUMode::OAM_SEARCH => {
+                // Optional interrupts
+                if GPU::COINCIDENCE_INTERRUPT_ENABLE(mmu) && GPU::COINCIDENCE_FLAG(mmu) {
+                    GPU::stat_int(mmu);
+                }
                 // Read OAM table on frame start
                 if self.ly == 0 {
                     read_oam(mmu, &mut self.sprites);
                 }
                 // Actual OAM_SEARCH
                 self.oam_scanline(mmu);
-                // Optional interrupts
-                if GPU::COINCIDENCE_INTERRUPT_ENABLE(mmu) && GPU::COINCIDENCE_FLAG(mmu) {
-                    GPU::stat_int(mmu);
-                }
                 GPU::_MODE(mmu, GPUMode::LCD_TRANSFER);
             },
             GPUMode::LCD_TRANSFER => {
@@ -126,6 +130,10 @@ impl <T: BankController>Clocked<T> for GPU {
             },
             GPUMode::HBLANK => {
                 self.ly += 1;
+                if self.win_rendered {
+                    self.win_rendered = false;
+                    self.wy += 1;
+                }
                 self.update(mmu);
                 if self.ly == SCREEN_HEIGHT as u8 {
                     GPU::_MODE(mmu, GPUMode::VBLANK);
@@ -140,6 +148,7 @@ impl <T: BankController>Clocked<T> for GPU {
                 self.ly = if self.ly as usize == SCREEN_HEIGHT + VBLANK_HEIGHT { 0 } else  { self.ly + 1 };
                 self.update(mmu);
                 if self.ly == 0 {
+                    self.wy = 0;
                     GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
                     if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) { GPU::stat_int(mmu); }
                 }
@@ -152,6 +161,8 @@ impl GPU {
     pub fn new(mmu: &mut MMU<impl BankController>) -> Self {
         let mut res = Self {
             ly: 0,
+            wy: 0,
+            win_rendered: false,
             sprites: [Default::default(); SPRITE_COUNT],
             sprites_line: [0xFF; SCANLINE_SPRITE_COUNT],
             framebuff: vec![WHITE; SCREEN_WIDTH*SCREEN_HEIGHT],
@@ -193,13 +204,14 @@ impl GPU {
         
         let win_enabled = GPU::WINDOW_ENABLED(mmu) &&
                           ly >= wy && 
-                          wx <= SCREEN_WIDTH + 7 &&
+                          wx >= 7 &&
+                          wx < SCREEN_WIDTH + 7 &&
                           wy <= SCREEN_HEIGHT;
-
         let in_window = |lx: usize| win_enabled && lx >= wx - 7;
+
         let tile_addressing = GPU::TILE_ADDRESSING(mmu);
         let window_tile_map = (if GPU::WINDOW_TILE_MAP(mmu) 
-            { TILE_MAP_2 } else { TILE_MAP_1 } - VRAM_ADDR) as usize;
+            { TILE_MAP_2 } else { TILE_MAP_1 } - VRAM_ADDR)  as usize;
         let bg_tile_map = (if GPU::BG_TILE_MAP(mmu) 
             { TILE_MAP_2 } else { TILE_MAP_1 } - VRAM_ADDR) as usize;
 
@@ -214,12 +226,17 @@ impl GPU {
         };
 
         while lx < SCREEN_WIDTH {
+            if !GPU::DISPLAY_PRIORITY(mmu) {
+                break;
+            }
             let window = in_window(lx);
+            self.win_rendered |= window;
 
             // Coordinates of tile to fetch.
-            let (x, y, tile_map) = match window {
-                true => (lx+7, ly, window_tile_map), // Not sure if it should be 'lx+7' or jsut 'lx'
-                false => ((scx + lx) % 256, (scy + ly) % 256, bg_tile_map),                
+            let (x, y, tile_map) = if window {
+                (lx - (wx-7), self.wy as usize, window_tile_map)
+            } else {
+                ((scx + lx) % 256, (scy + ly) % 256, bg_tile_map)                
             };
 
             let x_tile = x/8;
@@ -268,7 +285,7 @@ impl GPU {
             if idx == 0xFF { break; }
 
             let vram = &mmu.vram[..];
-            let mut sprite = self.sprites[idx];
+            let sprite = self.sprites[idx];
             let mut col = sprite.x as usize;
             let mut row =  (ly+16) - sprite.y as usize;
             if sprite.y_flip {
@@ -297,7 +314,9 @@ impl GPU {
                     // Fetch new color based on palette
                     let color = if sprite.palette { GPU::obp1_color(mmu, color) } else { GPU::obp0_color(mmu, color) };
                     // Put it in the framebuff
-                    self.framebuff[pixel_idx] = color;
+                    if color != TRANSPARENT {
+                        self.framebuff[pixel_idx] = color;
+                    }
                 }
                 col += 1;
                 off = if sprite.x_flip {
