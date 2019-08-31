@@ -9,7 +9,6 @@ pub use state::*;
 
 use std::io::prelude::*;
 use std::time::{Instant, Duration};
-use std::num::Wrapping;
 use std::{env, fs, io, thread};
 
 use sdl2::pixels::Color;
@@ -19,6 +18,7 @@ use sdl2::rect::Rect;
 
 const WINDOW_NAME: &str = "GAMEBOY EMU";
 const SCALE: u32 = 4;
+const FRAME_TIME: Duration = Duration::from_millis(1000/60);
 
 fn main() {
     if env::args().len() != 2 {
@@ -41,7 +41,6 @@ fn main() {
 
     //let mut runtime = Runtime::new(mbc::RomOnly::new(rom));
     
-
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem.window(WINDOW_NAME, SCALE * SCREEN_WIDTH as u32, SCALE * SCREEN_HEIGHT as u32)
@@ -57,6 +56,7 @@ fn main() {
         .map_err(|e| e.to_string()).unwrap();
     
     'emulating: loop {
+        let frame_start = Instant::now();
         let now = Instant::now();
     
         let keyboard = events.keyboard_state();
@@ -78,7 +78,6 @@ fn main() {
 
         let gpu = &mut runtime.state.gpu;
         let mmu = &mut runtime.state.mmu;
-
         println!("Internal: {}ms", now.elapsed().as_millis());
         mmu.reads = 0;
         mmu.writes = 0;
@@ -95,17 +94,13 @@ fn main() {
             canvas.set_draw_color(Color::RGB(*r, *g, *b));
             canvas.fill_rect(rect).unwrap();
         }
-/*
-        for y in 0..SCREEN_HEIGHT {
-            for x in 0..SCREEN_WIDTH {
-                let rect = Rect::new(SCALE as i32 * x as i32*8, SCALE as i32 * y as i32*8, SCALE*8, SCALE*8);
 
-                canvas.set_draw_color(Color::RGB(0, 255, 0));
-                canvas.draw_rect(rect)?;
-            }
-        }
-  */      
         canvas.present();
         println!("SDL : {}ms", now.elapsed().as_millis());
+
+        if let Some(sleep_time) = FRAME_TIME.checked_sub(frame_start.elapsed()) {
+            println!("Sleeping extra: {}ms", sleep_time.as_millis());
+            thread::sleep(sleep_time);
+        }
     } 
 }
