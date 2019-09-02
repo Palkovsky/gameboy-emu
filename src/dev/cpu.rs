@@ -26,6 +26,8 @@ impl <'a, T: BankController>Instruction<'a, T> {
 fn word(upper: u8, lower: u8) -> u16 {
     ((upper as u16) << 8) + (lower as u16)
 }
+
+// Returns upper and lower bytes of 16-bit word
 fn word_split(val: u16) -> (u8, u8) {
     ((val >> 8) as u8, (val & 0xFF) as u8)
 }

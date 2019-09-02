@@ -4,6 +4,9 @@ pub use cpu::*;
 pub mod gpu;
 pub use gpu::*;
 
+pub mod apu;
+pub use apu::*;
+
 pub mod timer;
 pub use timer::*;
 

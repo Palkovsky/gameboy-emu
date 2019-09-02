@@ -15,6 +15,7 @@ use sdl2::pixels::Color;
 use sdl2::event::Event;
 use sdl2::keyboard::{Keycode, Scancode};
 use sdl2::rect::Rect;
+use sdl2::audio::AudioSpecDesired;
 
 const WINDOW_NAME: &str = "GAMEBOY EMU";
 const SCALE: u32 = 5;
@@ -38,10 +39,12 @@ fn main() {
     let mut runtime = Runtime::new(mbc::MBC3::new(rom));
     runtime.state.mmu.disable_bootrom();
     runtime.cpu.PC.set(0x100);
-
-    //let mut runtime = Runtime::new(mbc::RomOnly::new(rom));
     
     let sdl_context = sdl2::init().unwrap();
+    let audio_subsystem = sdl_context.audio().unwrap();
+    let audio_spec = AudioSpecDesired { freq: Some(apu::PLAYBACK_FREQUENCY as i32), channels: Some(1), samples: Some(apu::BUFF_SIZE as u16) };
+    let mut audio = audio_subsystem.open_queue::<u16, _>(None, &audio_spec).unwrap();
+
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem.window(WINDOW_NAME, SCALE * SCREEN_WIDTH as u32, SCALE * SCREEN_HEIGHT as u32)
         .position_centered()
@@ -51,10 +54,11 @@ fn main() {
     let mut events = sdl_context.event_pump().unwrap();
     let mut canvas = window
         .into_canvas()
-        .accelerated()
+        .software()
         .build()
         .map_err(|e| e.to_string()).unwrap();
     
+
     'emulating: loop {
         let frame_start = Instant::now();
         let now = Instant::now();
@@ -68,7 +72,7 @@ fn main() {
         runtime.state.joypad.b(keyboard.is_scancode_pressed(Scancode::X));
         runtime.state.joypad.select(keyboard.is_scancode_pressed(Scancode::Space));
         runtime.state.joypad.start(keyboard.is_scancode_pressed(Scancode::Return) | keyboard.is_scancode_pressed(Scancode::Return2));
-        runtime.step(); 
+        runtime.step(&mut audio); 
 
         for event in events.poll_iter() {
             if let Event::Quit {..}  |  Event::KeyDown { keycode: Some(Keycode::Escape), .. } = event {

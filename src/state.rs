@@ -1,7 +1,8 @@
 use super::*;
+use sdl2::audio::AudioQueue;
 
 /* CPU cycles per frame */
-const CPF: u64 = 1000000/60;
+const CPF: u64 = (1<<20)/60;
 
 /*
  * Runtime is used to connect CPU with everything stored in State(memory, IO devices).
@@ -13,6 +14,7 @@ pub struct Runtime<T: BankController> {
 
     cpu_cycles: u64,
     gpu_cycles: u64,
+    apu_cycles: u64,
     timer_cycles: u64,
 }
 
@@ -24,12 +26,12 @@ impl <T: BankController>Runtime<T> {
             cpu: cpu, state: state,
             cpu_cycles: 0,
             gpu_cycles: 0, 
+            apu_cycles: 0,
             timer_cycles: 0, 
         }
     }
 
-    pub fn step(&mut self) {
-
+    pub fn step(&mut self, audio: &mut AudioQueue<u16>) {
         while self.cpu_cycles < CPF {
             self.cpu_cycles += self.cpu.interrupts(&mut self.state);   
             self.cpu_cycles += self.cpu.step(&mut self.state);
@@ -39,17 +41,24 @@ impl <T: BankController>Runtime<T> {
             }   
             self.gpu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.gpu, self.cpu_cycles, self.gpu_cycles);
             self.timer_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.timer, self.cpu_cycles, self.timer_cycles);
+            self.apu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.apu, self.cpu_cycles, self.apu_cycles);
+
+            if let Some(samples) = self.state.apu.chan1_samples() {
+                audio.queue(&samples);
+                audio.resume();
+            }
         }
 
         self.cpu_cycles = 0;
         self.gpu_cycles = 0;
+        self.apu_cycles = 0;
         self.timer_cycles = 0;
     }
 
     fn catchup(mmu: &mut MMU<T>, dev: &mut impl Clocked<T>, cpu_clk: u64, dev_clk: u64) -> u64 {
         let mut next = dev.next_time(mmu);
         let mut dev_new = dev_clk;
-        while dev_new + next < cpu_clk {
+        while dev_new + next <= cpu_clk {
             dev_new += next;
             dev.step(mmu);
             next = dev.next_time(mmu);
@@ -65,6 +74,7 @@ impl <T: BankController>Runtime<T> {
  */
 pub struct State<T: BankController> {
     pub gpu: GPU,
+    pub apu: APU,
     pub timer: Timer,
     pub dma: DMA,
     pub joypad: Joypad,
@@ -75,10 +85,11 @@ impl <T: BankController>State<T> {
     pub fn new(mapper: T) -> Self {
         let mut mmu = MMU::new(mapper);
         let gpu = GPU::new(&mut mmu);
+        let apu = APU::new(&mut mmu);
         let timer = Timer::new();
         let dma = DMA::new();
         let joypad = Joypad::new();     
-        Self { mmu: mmu, gpu: gpu, timer: timer, dma: dma, joypad: joypad }
+        Self { mmu: mmu, gpu: gpu, apu: apu, timer: timer, dma: dma, joypad: joypad }
     }
 
     pub fn safe_write(&mut self, addr: Addr, value: Byte) {
