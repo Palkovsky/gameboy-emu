@@ -93,14 +93,14 @@ impl <T: BankController>State<T> {
     }
 
     pub fn safe_write(&mut self, addr: Addr, value: Byte) {
-        //if !self.is_addr_allowed(addr) { 
-        //    println!("Write to restricted memory at 0x{:x}", addr);  
-        //}
-
         self.mmu.write(addr, value);
         match addr {
             // LYC=LY flag should be updated constantly
             LYC => self.gpu.update(&mut self.mmu),
+            NR_10 | NR_11 | NR_12 | NR_13 | NR_14 => self.apu.chan1_reset(&mut self.mmu),
+            NR_21 | NR_22 | NR_23 | NR_24         => self.apu.chan2_reset(&mut self.mmu),
+            NR_30 | NR_31 | NR_32 | NR_33 | NR_34 => self.apu.chan3_reset(&mut self.mmu),
+            NR_41 | NR_42 | NR_43 | NR_44         => self.apu.chan2_reset(&mut self.mmu),
             // Write to DIV resets it to 0
             DIV => { 
                 self.mmu.write(addr, 0); 
@@ -119,10 +119,6 @@ impl <T: BankController>State<T> {
     }
 
     pub fn safe_read(&mut self, addr: Addr) -> Byte {
-        //if !self.is_addr_allowed(addr) { 
-            //println!("Tried reading from restricted memory at 0x{:x}", addr);  
-            //return 0xFF
-        //}
         self.mmu.read(addr)
     }
 
