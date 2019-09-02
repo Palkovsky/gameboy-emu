@@ -2,6 +2,8 @@
 
 Written in Rust.
 
+# Features
+
 What works:
 
 * CPU
