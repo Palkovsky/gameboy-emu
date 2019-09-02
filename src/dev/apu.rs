@@ -8,18 +8,96 @@ const SEQUENCER_UPDATE_RATE: u16 = (CPU_FREQUENCY/SEQUENCER_FREQUENCY) as u16;
 const SEQUENCER_STEP_COUNT: u16 = 8;
 const DUTY_CYCLE_COUNT: u16 = 4;
 const DUTY_CYCLE_STEPS: u16 = 8;
-pub const BUFF_SIZE: usize = 1024;
+pub const BUFF_SIZE: usize = 4096;
 pub const PLAYBACK_FREQUENCY: u32 = 48000;
 const SAMPLE_APPEND_RATE: u16 = (CPU_FREQUENCY/PLAYBACK_FREQUENCY) as u16;
 
-const DUTY_CYCLES: [[bool; DUTY_CYCLE_STEPS as usize]; DUTY_CYCLE_COUNT as usize] = [
+const DUTY_CYCLES: [[bool; DUTY_CYCLE_STEPS as usize]; DUTY_CYCLE_COUNT as usize] = [ 
+    
     [false, true, true, true, true, true, true, true], // 12.5%
     [false, false, true, true, true, true, true, true], // 25%
     [false, false, false, false, true, true, true, true], // 50%
     [false, false, false, false, false, false, true, true], // 75%
 ];
 
-struct Chan1 {
+trait SquareWaveRegisters {
+    fn SWEEP_TIME(&self, mmu: &mut MMU<impl BankController>) -> u16;
+    fn SWEEP_SHIFTS(&self, mmu: &mut MMU<impl BankController>) -> u8;
+    fn SWEEP_DIRECTION(&self, mmu: &mut MMU<impl BankController>) -> bool;
+    fn SOUND_LENGTH(&self, mmu: &mut MMU<impl BankController>) -> u16;
+    fn WAVE_DUTY(&self, mmu: &mut MMU<impl BankController>) -> u8;
+    fn ENVELOPE_SHIFTS(&self, mmu: &mut MMU<impl BankController>) -> u8;
+    fn ENVELOPE_DIRECTION(&self, mmu: &mut MMU<impl BankController>) -> bool;
+    fn INITIAL_VOLUME(&self, mmu: &mut MMU<impl BankController>) -> u16;
+    fn FREQ(&self, mmu: &mut MMU<impl BankController>) -> u16;
+    fn COUNTER_CONSECUTIVE_SELECT(&self, mmu: &mut MMU<impl BankController>) -> bool;
+    fn INITIAL(&self, mmu: &mut MMU<impl BankController>) -> bool;
+    fn _INITIAL(&self, mmu: &mut MMU<impl BankController>, value: bool);
+    fn ENABLED(&self, mmu: &mut MMU<impl BankController>) -> bool;
+    fn _ENABLED(&self, mmu: &mut MMU<impl BankController>, value: bool);
+}
+
+struct Channel1Regs;
+impl SquareWaveRegisters for Channel1Regs {
+    // NR 10 - Sweep register
+    fn SWEEP_TIME(&self, mmu: &mut MMU<impl BankController>) -> u16         { (mmu.read(ioregs::NR_10) >> 4) as u16}
+    fn SWEEP_SHIFTS(&self, mmu: &mut MMU<impl BankController>) -> u8        { mmu.read(ioregs::NR_10) & 7 }
+    fn SWEEP_DIRECTION(&self, mmu: &mut MMU<impl BankController>) -> bool   { mmu.read(ioregs::NR_10) & 8 != 0 }
+
+    // NR 11 - Length and wave duty registers
+    fn SOUND_LENGTH(&self, mmu: &mut MMU<impl BankController>) -> u16 { (mmu.read(ioregs::NR_11) & 0x3F) as u16 }
+    fn WAVE_DUTY(&self, mmu: &mut MMU<impl BankController>) -> u8    { mmu.read(ioregs::NR_11) >> 6 }
+
+    // NR 12 - Volume Envelope register
+    fn ENVELOPE_SHIFTS(&self, mmu: &mut MMU<impl BankController>) -> u8       { mmu.read(ioregs::NR_12) & 7 }
+    fn ENVELOPE_DIRECTION(&self, mmu: &mut MMU<impl BankController>) -> bool  { mmu.read(ioregs::NR_12) & 8 != 0 }
+    fn INITIAL_VOLUME(&self, mmu: &mut MMU<impl BankController>) -> u16       { (mmu.read(ioregs::NR_12) >> 4)  as u16 }
+
+    // NR13 and NR14 - frequency
+    fn FREQ(&self, mmu: &mut MMU<impl BankController>) -> u16 {
+        (((mmu.read(ioregs::NR_14) & 7) as u16) << 8) + mmu.read(ioregs::NR_13) as u16
+    }
+    // NR 14 - Counter/Consecutive selection and initial flags
+    fn COUNTER_CONSECUTIVE_SELECT(&self, mmu: &mut MMU<impl BankController>) -> bool { mmu.read(ioregs::NR_14) & 0x40 != 0 }
+    fn INITIAL(&self, mmu: &mut MMU<impl BankController>) -> bool { mmu.read(ioregs::NR_14) & 0x80 != 0}
+    fn _INITIAL(&self, mmu: &mut MMU<impl BankController>, value: bool) { mmu.set_bit(ioregs::NR_14, 7, value) }
+
+    // NR52 - Sound ON/OFF
+    fn ENABLED(&self, mmu: &mut MMU<impl BankController>) -> bool { mmu.read_bit(ioregs::NR_52, 0) }
+    fn _ENABLED(&self, mmu: &mut MMU<impl BankController>, value: bool) { mmu.set_bit(ioregs::NR_52, 0, value) }
+}
+
+struct Channel2Regs;
+impl SquareWaveRegisters for Channel2Regs {
+    // No sweep in channel2
+    fn SWEEP_TIME(&self, mmu: &mut MMU<impl BankController>) -> u16 { 0 }
+    fn SWEEP_SHIFTS(&self, mmu: &mut MMU<impl BankController>) -> u8 { 0 }
+    fn SWEEP_DIRECTION(&self, mmu: &mut MMU<impl BankController>) -> bool { false }
+
+    // NR 21 - Length and wave duty registers
+    fn SOUND_LENGTH(&self, mmu: &mut MMU<impl BankController>) -> u16 { (mmu.read(ioregs::NR_21) & 0x3F) as u16 }
+    fn WAVE_DUTY(&self, mmu: &mut MMU<impl BankController>) -> u8 { mmu.read(ioregs::NR_21) >> 6 }
+
+    // NR 22 - Volume Envelope register
+    fn ENVELOPE_SHIFTS(&self, mmu: &mut MMU<impl BankController>) -> u8 { mmu.read(ioregs::NR_22) & 7 }
+    fn ENVELOPE_DIRECTION(&self, mmu: &mut MMU<impl BankController>) -> bool { mmu.read(ioregs::NR_22) & 8 != 0 }
+    fn INITIAL_VOLUME(&self, mmu: &mut MMU<impl BankController>) -> u16 { (mmu.read(ioregs::NR_22) >> 4)  as u16 }
+
+    // NR23 and NR24 - frequency
+    fn FREQ(&self, mmu: &mut MMU<impl BankController>) -> u16 {
+        (((mmu.read(ioregs::NR_24) & 7) as u16) << 8) + mmu.read(ioregs::NR_23) as u16
+    }
+    // NR 24 - Counter/Consecutive selection and initial flags
+    fn COUNTER_CONSECUTIVE_SELECT(&self, mmu: &mut MMU<impl BankController>) -> bool { mmu.read(ioregs::NR_24) & 0x40 != 0 }
+    fn INITIAL(&self, mmu: &mut MMU<impl BankController>) -> bool { mmu.read(ioregs::NR_24) & 0x80 != 0}
+    fn _INITIAL(&self, mmu: &mut MMU<impl BankController>, value: bool) { mmu.set_bit(ioregs::NR_24, 7, value) }
+
+    // NR52 - Sound ON/OFF
+    fn ENABLED(&self, mmu: &mut MMU<impl BankController>) -> bool { mmu.read_bit(ioregs::NR_52, 1) }
+    fn _ENABLED(&self, mmu: &mut MMU<impl BankController>, value: bool) { mmu.set_bit(ioregs::NR_52, 1, value) }
+}
+
+struct SquareWave<T: SquareWaveRegisters> {
     /* frequency with sweep function transforms */
     frequency: u16,
     /* volume with envelope function transforms */
@@ -33,54 +111,49 @@ struct Chan1 {
     /* sweep timer */
     sweep_timer: u16,
     envelope_count: u8,
-    /* Output buffer for samples. */
-    buff: [u16; BUFF_SIZE],
-    out_buff: Option<[u16; BUFF_SIZE]>,
-    /* Index of next position to write. */
-    buff_idx: usize,
+    /* Output buffer */
+    buff: Vec<i16>,
     /* Used to fillup buffer for player with PLAYBACK_FREQUENCY sampling rate, not CPU_FREQUENCY */
     sample_counter: u16,
+    /* Provides access to memory mapped registers */
+    regs: T,
 }
 
-impl Chan1 {
-    fn new(mmu: &mut MMU<impl BankController>) -> Self { 
+impl <T: SquareWaveRegisters>SquareWave<T> {
+    fn new(mmu: &mut MMU<impl BankController>, regs: T) -> Self { 
         Self {
-            frequency:  Chan1::FREQ(mmu),
-            volume:     Chan1::INITIAL_VOLUME(mmu),
-            length:     Chan1::SOUND_LENGTH(mmu),
-            timer:      2048 - Chan1::FREQ(mmu),
-            duty_cycle: 0,
-            sweep_timer: Chan1::SWEEP_TIME(mmu),
-            envelope_count: Chan1::ENVELOPE_SHIFTS(mmu),
-            buff:       [0; BUFF_SIZE],
-            out_buff:   None,
-            buff_idx:   0,
+            frequency:      regs.FREQ(mmu),
+            volume:         regs.INITIAL_VOLUME(mmu),
+            length:         regs.SOUND_LENGTH(mmu),
+            timer:          2048 - regs.FREQ(mmu),
+            duty_cycle:     0,
+            sweep_timer:    regs.SWEEP_TIME(mmu),
+            envelope_count: regs.ENVELOPE_SHIFTS(mmu),
+            buff:           Vec::with_capacity(BUFF_SIZE),
             sample_counter: 0,
+            regs:           regs,
         }
     }
 
     fn reset(&mut self, mmu: &mut MMU<impl BankController>) {
-        self.frequency = Chan1::FREQ(mmu);
-        self.volume = Chan1::INITIAL_VOLUME(mmu);
-        self.length = Chan1::SOUND_LENGTH(mmu);
+        self.frequency = self.regs.FREQ(mmu);
+        self.volume = self.regs.INITIAL_VOLUME(mmu);
+        self.length = self.regs.SOUND_LENGTH(mmu);
         self.timer = 2048 - self.frequency;
         self.duty_cycle = 0;
-        self.sweep_timer = Chan1::SWEEP_TIME(mmu);
-        self.envelope_count = Chan1::ENVELOPE_SHIFTS(mmu);
-        self.buff = [0; BUFF_SIZE];
-        self.out_buff = None;
-        self.buff_idx = 0;
+        self.sweep_timer = self.regs.SWEEP_TIME(mmu);
+        self.envelope_count = self.regs.ENVELOPE_SHIFTS(mmu);
         self.sample_counter = 0;
     }
 
     fn tick(&mut self, mmu: &mut MMU<impl BankController>) {
         // If triggered start.
-        if Chan1::INITIAL(mmu) { 
+        if self.regs.INITIAL(mmu) { 
             self.reset(mmu);
-            Chan1::_INITIAL(mmu, false);
-            Chan1::_ENABLED(mmu, true);
+            self.regs._INITIAL(mmu, false);
+            self.regs._ENABLED(mmu, true);
         }
-        if !Chan1::ENABLED(mmu) { return }
+        if !self.regs.ENABLED(mmu) { return }
         // Update timer and duty cycle
         if self.timer > 0 { self.timer -= 1 };
         if self.timer == 0 {
@@ -90,89 +163,55 @@ impl Chan1 {
         // Generate sample
         self.sample_counter += 1;
         if self.sample_counter == SAMPLE_APPEND_RATE {
-            let is_on = DUTY_CYCLES[Chan1::WAVE_DUTY(mmu) as usize][self.duty_cycle as usize];
-            self.buff[self.buff_idx] = if is_on && self.volume > 0 { (1<<16 - 1)/self.volume } else { 0 };
-            // When temporary buffer filled, flush to output buff.
-            self.buff_idx += 1;
-            if self.buff_idx == BUFF_SIZE {
-                self.out_buff = Some(self.buff);
-                self.buff_idx = 0;
-            }
+            let is_on  = DUTY_CYCLES[self.regs.WAVE_DUTY(mmu) as usize][self.duty_cycle as usize];
+            let sample = if is_on && self.volume > 0 { (i16::max_value()/0xF)*(self.volume as i16) } else { 0 };
+            self.buff.push(sample);
             self.sample_counter = 0;
         }
     }
 
-    pub fn buffer(&mut self) -> Option<[u16; BUFF_SIZE]> { 
-        let res = self.out_buff; 
-        self.out_buff = None;
-        res
+    pub fn buffer(&mut self) -> &mut Vec<i16> { 
+        &mut self.buff
     }
 
     fn length(&mut self, mmu: &mut MMU<impl BankController>) {
-        if !Chan1::ENABLED(mmu) { return }
+        if !self.regs.ENABLED(mmu) { return }
         if self.length > 0 { self.length -= 1; }
         if self.length == 0 {
             // Disable
             self.reset(mmu);
-            if Chan1::COUNTER_CONSECUTIVE_SELECT(mmu) { Chan1::_ENABLED(mmu, false); }
+            if self.regs.COUNTER_CONSECUTIVE_SELECT(mmu) { self.regs._ENABLED(mmu, false); }
         }
     }
+
     fn sweep(&mut self, mmu: &mut MMU<impl BankController>) {
-        if !Chan1::ENABLED(mmu) { return }
+        if !self.regs.ENABLED(mmu) { return }
 
         self.sweep_timer -= 1;
         if self.sweep_timer == 0 {
-            let delta = self.frequency/(2 as u16).pow(Chan1::SWEEP_SHIFTS(mmu) as u32);
-            if Chan1::SWEEP_DIRECTION(mmu) { 
+            let delta = self.frequency/(2 as u16).pow(self.regs.SWEEP_SHIFTS(mmu) as u32);
+            if self.regs.SWEEP_DIRECTION(mmu) { 
                 if delta >= self.frequency { self.frequency -= delta; }
             } else if self.frequency + delta > 0x7FF { 
-                Chan1::_ENABLED(mmu, false);
+                self.regs._ENABLED(mmu, false);
             } else {
                 self.frequency += delta;
             }
-            self.sweep_timer = Chan1::SWEEP_TIME(mmu);
+            self.sweep_timer = self.regs.SWEEP_TIME(mmu);
         }
     }
+
     fn envelope(&mut self, mmu: &mut MMU<impl BankController>) {
-        if !Chan1::ENABLED(mmu) || self.envelope_count == 0 { return }
-        if Chan1::ENVELOPE_DIRECTION(mmu) {
+        if !self.regs.ENABLED(mmu) || self.envelope_count == 0 { return }
+        if self.regs.ENVELOPE_DIRECTION(mmu) {
             if self.volume < 0xF { self.volume += 1 };
         } else {
             if self.volume > 0   { self.volume -= 1 };
         }
         self.envelope_count -= 1;
     }
-
-    // NR 10 - Sweep register
-    fn SWEEP_TIME(mmu: &mut MMU<impl BankController>) -> u16          { (mmu.read(ioregs::NR_10) >> 4) as u16}
-    fn SWEEP_SHIFTS(mmu: &mut MMU<impl BankController>) -> u8        { mmu.read(ioregs::NR_10) & 7 }
-    // true = subtraction, false = addition
-    fn SWEEP_DIRECTION(mmu: &mut MMU<impl BankController>) -> bool   { mmu.read(ioregs::NR_10) & 8 != 0 }
-
-    // NR 11 - Length and wave duty registers
-    fn SOUND_LENGTH(mmu: &mut MMU<impl BankController>) -> u16 { (mmu.read(ioregs::NR_11) & 0x3F) as u16 }
-    fn WAVE_DUTY(mmu: &mut MMU<impl BankController>) -> u8    { mmu.read(ioregs::NR_11) >> 6 }
-
-    // NR 12 - Volume Envelope register
-    fn ENVELOPE_SHIFTS(mmu: &mut MMU<impl BankController>) -> u8       { mmu.read(ioregs::NR_12) & 7 }
-
-    // true = increase, true = decrease
-    fn ENVELOPE_DIRECTION(mmu: &mut MMU<impl BankController>) -> bool  { mmu.read(ioregs::NR_12) & 8 != 0 }
-    fn INITIAL_VOLUME(mmu: &mut MMU<impl BankController>) -> u16       { (mmu.read(ioregs::NR_12) >> 4)  as u16 }
-
-    // NR13 and NR14 - frequency
-    fn FREQ(mmu: &mut MMU<impl BankController>) -> u16 {
-        (((mmu.read(ioregs::NR_14) & 7) as u16) << 8) + mmu.read(ioregs::NR_13) as u16
-    }
-    // NR 14 - Counter/Consecutive selection and initial flags
-    fn COUNTER_CONSECUTIVE_SELECT(mmu: &mut MMU<impl BankController>) -> bool { mmu.read(ioregs::NR_14) & 0x40 != 0 }
-    fn INITIAL(mmu: &mut MMU<impl BankController>) -> bool { mmu.read(ioregs::NR_14) & 0x80 != 0}
-    fn _INITIAL(mmu: &mut MMU<impl BankController>, value: bool) { mmu.set_bit(ioregs::NR_14, 7, value) }
-
-    // NR52 - Sound ON/OFF
-    fn ENABLED(mmu: &mut MMU<impl BankController>) -> bool { mmu.read(ioregs::NR_52) & 1 != 0 }
-    fn _ENABLED(mmu: &mut MMU<impl BankController>, value: bool) { mmu.set_bit(ioregs::NR_52, 0, value) }
 }
+
 
 pub struct APU {
     /* If sequencer_cycle % (1MHz/512Hz) == 0 then sequencer_step increments */
@@ -180,7 +219,8 @@ pub struct APU {
     /* Number between 0-7. It wraps around. */
     sequencer_step: u16,
     /* Quadrangular wave patterns with sweep and envelope functions. */
-    chan1: Chan1,
+    chan1: SquareWave<Channel1Regs>,
+    chan2: SquareWave<Channel2Regs>,
 }
 
 impl <T: BankController>Clocked<T> for APU {
@@ -190,18 +230,23 @@ impl <T: BankController>Clocked<T> for APU {
 
     fn step(&mut self, mmu: &mut MMU<T>) { 
         self.chan1.tick(mmu);
+        self.chan2.tick(mmu);
+
         self.sequencer_cycle += 1;
         if self.sequencer_cycle == SEQUENCER_UPDATE_RATE {
             match self.sequencer_step { 0 | 2 | 4 | 6 => {
                     self.chan1.length(mmu);
+                    self.chan2.length(mmu);
                 }, _ => {},
             };
             match self.sequencer_step { 2 | 6 => {
                     self.chan1.sweep(mmu);
+                    // No sweep for chan2
                 }, _ => {},
             };
             match self.sequencer_step { 7 => {
                     self.chan1.envelope(mmu);
+                    self.chan2.envelope(mmu);
                 }, _ => {},
             };
 
@@ -216,14 +261,16 @@ impl APU {
         Self {
             sequencer_cycle: 0,
             sequencer_step: 0,
-            chan1: Chan1::new(mmu),
+            chan1: SquareWave::new(mmu, Channel1Regs),
+            chan2: SquareWave::new(mmu, Channel2Regs),
         }
     }
 
-    pub fn chan1_samples(&mut self) -> Option<[u16; BUFF_SIZE]> { self.chan1.buffer() }
+    pub fn chan1_samples(&mut self) -> &mut Vec<i16> { self.chan1.buffer() }
+    pub fn chan2_samples(&mut self) -> &mut Vec<i16> { self.chan2.buffer() }
 
     pub fn chan1_reset(&mut self, mmu: &mut MMU<impl BankController>) { self.chan1.reset(mmu); }
-    pub fn chan2_reset(&mut self, mmu: &mut MMU<impl BankController>) {  }
+    pub fn chan2_reset(&mut self, mmu: &mut MMU<impl BankController>) { self.chan2.reset(mmu); }
     pub fn chan3_reset(&mut self, mmu: &mut MMU<impl BankController>) {  }
     pub fn chan4_reset(&mut self, mmu: &mut MMU<impl BankController>) {  }
 }

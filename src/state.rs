@@ -31,7 +31,7 @@ impl <T: BankController>Runtime<T> {
         }
     }
 
-    pub fn step(&mut self, audio: &mut AudioQueue<u16>) {
+    pub fn step(&mut self, audio: &mut AudioQueue<i16>) {
         while self.cpu_cycles < CPF {
             self.cpu_cycles += self.cpu.interrupts(&mut self.state);   
             self.cpu_cycles += self.cpu.step(&mut self.state);
@@ -43,10 +43,19 @@ impl <T: BankController>Runtime<T> {
             self.timer_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.timer, self.cpu_cycles, self.timer_cycles);
             self.apu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.apu, self.cpu_cycles, self.apu_cycles);
 
-            if let Some(samples) = self.state.apu.chan1_samples() {
-                audio.queue(&samples);
-                audio.resume();
+            let samples = self.state.apu.chan2_samples();
+            if samples.len() < apu::BUFF_SIZE { continue; }
+            let mut buff = [0; apu::BUFF_SIZE];
+            let mut j = 0;
+            for (i, sample) in samples.iter().enumerate() {
+                buff[i % apu::BUFF_SIZE] = *sample;
+                if i > 0 && i % apu::BUFF_SIZE == 0 { 
+                    audio.queue(&buff);
+                    audio.resume();
+                    j += apu::BUFF_SIZE;
+                }
             }
+             for i in (0..j).rev() { samples.remove(i); }
         }
 
         self.cpu_cycles = 0;
@@ -97,10 +106,10 @@ impl <T: BankController>State<T> {
         match addr {
             // LYC=LY flag should be updated constantly
             LYC => self.gpu.update(&mut self.mmu),
-            NR_10 | NR_11 | NR_12 | NR_13 | NR_14 => self.apu.chan1_reset(&mut self.mmu),
-            NR_21 | NR_22 | NR_23 | NR_24         => self.apu.chan2_reset(&mut self.mmu),
-            NR_30 | NR_31 | NR_32 | NR_33 | NR_34 => self.apu.chan3_reset(&mut self.mmu),
-            NR_41 | NR_42 | NR_43 | NR_44         => self.apu.chan2_reset(&mut self.mmu),
+            //NR_10 | NR_11 | NR_12 | NR_13 | NR_14 => self.apu.chan1_reset(&mut self.mmu),
+            //NR_21 | NR_22 | NR_23 | NR_24         => self.apu.chan2_reset(&mut self.mmu),
+            //NR_30 | NR_31 | NR_32 | NR_33 | NR_34 => self.apu.chan3_reset(&mut self.mmu),
+            //NR_41 | NR_42 | NR_43 | NR_44         => self.apu.chan2_reset(&mut self.mmu),
             // Write to DIV resets it to 0
             DIV => { 
                 self.mmu.write(addr, 0); 
