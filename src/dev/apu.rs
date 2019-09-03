@@ -8,12 +8,11 @@ const SEQUENCER_UPDATE_RATE: u16 = (CPU_FREQUENCY/SEQUENCER_FREQUENCY) as u16;
 const SEQUENCER_STEP_COUNT: u16 = 8;
 const DUTY_CYCLE_COUNT: u16 = 4;
 const DUTY_CYCLE_STEPS: u16 = 8;
-pub const BUFF_SIZE: usize = 4096;
-pub const PLAYBACK_FREQUENCY: u32 = 48000;
-const SAMPLE_APPEND_RATE: u16 = (CPU_FREQUENCY/PLAYBACK_FREQUENCY) as u16;
+pub const BUFF_SIZE: usize = 1024;
+pub const PLAYBACK_FREQUENCY: u32 = 96000;
+const SAMPLE_APPEND_RATE: u16 = (CPU_FREQUENCY/PLAYBACK_FREQUENCY) as u16 + 1;
 
 const DUTY_CYCLES: [[bool; DUTY_CYCLE_STEPS as usize]; DUTY_CYCLE_COUNT as usize] = [ 
-    
     [false, true, true, true, true, true, true, true], // 12.5%
     [false, false, true, true, true, true, true, true], // 25%
     [false, false, false, false, true, true, true, true], // 50%
@@ -58,8 +57,8 @@ impl SquareWaveRegisters for Channel1Regs {
         (((mmu.read(ioregs::NR_14) & 7) as u16) << 8) + mmu.read(ioregs::NR_13) as u16
     }
     // NR 14 - Counter/Consecutive selection and initial flags
-    fn COUNTER_CONSECUTIVE_SELECT(&self, mmu: &mut MMU<impl BankController>) -> bool { mmu.read(ioregs::NR_14) & 0x40 != 0 }
-    fn INITIAL(&self, mmu: &mut MMU<impl BankController>) -> bool { mmu.read(ioregs::NR_14) & 0x80 != 0}
+    fn COUNTER_CONSECUTIVE_SELECT(&self, mmu: &mut MMU<impl BankController>) -> bool { mmu.read_bit(ioregs::NR_14, 6) }
+    fn INITIAL(&self, mmu: &mut MMU<impl BankController>) -> bool { mmu.read_bit(ioregs::NR_14, 7) }
     fn _INITIAL(&self, mmu: &mut MMU<impl BankController>, value: bool) { mmu.set_bit(ioregs::NR_14, 7, value) }
 
     // NR52 - Sound ON/OFF
@@ -136,6 +135,7 @@ impl <T: SquareWaveRegisters>SquareWave<T> {
     }
 
     fn reset(&mut self, mmu: &mut MMU<impl BankController>) {
+        self.buffer().clear();
         self.frequency = self.regs.FREQ(mmu);
         self.volume = self.regs.INITIAL_VOLUME(mmu);
         self.length = self.regs.SOUND_LENGTH(mmu);
@@ -164,7 +164,7 @@ impl <T: SquareWaveRegisters>SquareWave<T> {
         self.sample_counter += 1;
         if self.sample_counter == SAMPLE_APPEND_RATE {
             let is_on  = DUTY_CYCLES[self.regs.WAVE_DUTY(mmu) as usize][self.duty_cycle as usize];
-            let sample = if is_on && self.volume > 0 { (i16::max_value()/0xF)*(self.volume as i16) } else { 0 };
+            let sample = if is_on { (i16::max_value()/0xF)*(self.volume as i16) } else { 0 };
             self.buff.push(sample);
             self.sample_counter = 0;
         }
@@ -175,18 +175,19 @@ impl <T: SquareWaveRegisters>SquareWave<T> {
     }
 
     fn length(&mut self, mmu: &mut MMU<impl BankController>) {
-        if !self.regs.ENABLED(mmu) { return }
+        if !self.regs.ENABLED(mmu) || self.regs.SOUND_LENGTH(mmu) == 0 { return }
         if self.length > 0 { self.length -= 1; }
         if self.length == 0 {
-            // Disable
-            self.reset(mmu);
-            if self.regs.COUNTER_CONSECUTIVE_SELECT(mmu) { self.regs._ENABLED(mmu, false); }
+            if self.regs.COUNTER_CONSECUTIVE_SELECT(mmu) {
+                self.regs._ENABLED(mmu, false); 
+            } else {
+                //self.reset(mmu);
+            }
         }
     }
 
     fn sweep(&mut self, mmu: &mut MMU<impl BankController>) {
         if !self.regs.ENABLED(mmu) { return }
-
         self.sweep_timer -= 1;
         if self.sweep_timer == 0 {
             let delta = self.frequency/(2 as u16).pow(self.regs.SWEEP_SHIFTS(mmu) as u32);
@@ -211,7 +212,6 @@ impl <T: SquareWaveRegisters>SquareWave<T> {
         self.envelope_count -= 1;
     }
 }
-
 
 pub struct APU {
     /* If sequencer_cycle % (1MHz/512Hz) == 0 then sequencer_step increments */
@@ -251,7 +251,7 @@ impl <T: BankController>Clocked<T> for APU {
             };
 
             self.sequencer_cycle = 0;
-            self.sequencer_step += (self.sequencer_step + 1) % SEQUENCER_STEP_COUNT;
+            self.sequencer_step = (self.sequencer_step + 1) % SEQUENCER_STEP_COUNT;
         }
     }
 }
@@ -264,6 +264,22 @@ impl APU {
             chan1: SquareWave::new(mmu, Channel1Regs),
             chan2: SquareWave::new(mmu, Channel2Regs),
         }
+    }
+
+    /* Is channel conected to terminal 1? */
+    pub fn SO1(mmu: &mut MMU<impl BankController>, chan: u8) -> bool {
+        if chan > 4  || chan == 0 { return false }
+        let chan = chan - 1;
+        let nr_51 = mmu.read(ioregs::NR_51);
+        (nr_51 & (1 << chan)) != 0
+    }
+    
+    /* Is channel conected to terminal 2? */
+    pub fn SO2(mmu: &mut MMU<impl BankController>, chan: u8) -> bool {
+        if chan > 4  || chan == 0 { return false }
+        let chan = chan - 1;
+        let nr_51 = mmu.read(ioregs::NR_51) >> 4;
+        (nr_51 & (1 << chan)) != 0
     }
 
     pub fn chan1_samples(&mut self) -> &mut Vec<i16> { self.chan1.buffer() }

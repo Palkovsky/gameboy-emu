@@ -43,20 +43,27 @@ impl <T: BankController>Runtime<T> {
             self.timer_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.timer, self.cpu_cycles, self.timer_cycles);
             self.apu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.apu, self.cpu_cycles, self.apu_cycles);
 
-            let samples = self.state.apu.chan2_samples();
-            if samples.len() < apu::BUFF_SIZE { continue; }
-            let mut buff = [0; apu::BUFF_SIZE];
-            let mut j = 0;
-            for (i, sample) in samples.iter().enumerate() {
-                buff[i % apu::BUFF_SIZE] = *sample;
-                if i > 0 && i % apu::BUFF_SIZE == 0 { 
-                    audio.queue(&buff);
-                    audio.resume();
-                    j += apu::BUFF_SIZE;
+            /* It's buggy. If one channel disabled, other won't play. */
+            let samples1 = self.state.apu.chan1_samples().clone();
+            let samples2 = self.state.apu.chan2_samples().clone();
+            if samples1.len() >= apu::BUFF_SIZE && samples2.len() >= apu::BUFF_SIZE {
+                let buff1 = &samples1[(samples1.len()-apu::BUFF_SIZE)..];
+                let buff2 = &samples2[(samples2.len()-apu::BUFF_SIZE)..];
+                let mut mixed = [0; apu::BUFF_SIZE*2];
+                for i in 0..apu::BUFF_SIZE {
+                    mixed[2*i] = buff1[i];
+                    mixed[2*i + 1] = buff2[i];
                 }
+                audio.queue(&mixed);
+                audio.resume();
+                self.state.apu.chan1_samples().clear();
+                self.state.apu.chan2_samples().clear();
             }
-             for i in (0..j).rev() { samples.remove(i); }
         }
+            println!("NR 50: 0b{:8b}, NR 51: 0b{:8b}, NR 52: 0b{:8b}", 
+                    self.state.mmu.read(ioregs::NR_50),
+                    self.state.mmu.read(ioregs::NR_51), 
+                    self.state.mmu.read(ioregs::NR_52));
 
         self.cpu_cycles = 0;
         self.gpu_cycles = 0;
@@ -106,7 +113,7 @@ impl <T: BankController>State<T> {
         match addr {
             // LYC=LY flag should be updated constantly
             LYC => self.gpu.update(&mut self.mmu),
-            //NR_10 | NR_11 | NR_12 | NR_13 | NR_14 => self.apu.chan1_reset(&mut self.mmu),
+            // NR_14 => self.apu.chan1_reset(&mut self.mmu);,
             //NR_21 | NR_22 | NR_23 | NR_24         => self.apu.chan2_reset(&mut self.mmu),
             //NR_30 | NR_31 | NR_32 | NR_33 | NR_34 => self.apu.chan3_reset(&mut self.mmu),
             //NR_41 | NR_42 | NR_43 | NR_44         => self.apu.chan2_reset(&mut self.mmu),

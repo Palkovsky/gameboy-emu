@@ -42,7 +42,7 @@ fn main() {
     
     let sdl_context = sdl2::init().unwrap();
     let audio_subsystem = sdl_context.audio().unwrap();
-    let audio_spec = AudioSpecDesired { freq: Some(apu::PLAYBACK_FREQUENCY as i32), channels: Some(1), samples: Some(apu::BUFF_SIZE as u16) };
+    let audio_spec = AudioSpecDesired { freq: Some(apu::PLAYBACK_FREQUENCY as i32), channels: Some(2), samples: Some(apu::BUFF_SIZE as u16) };
     let mut audio = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
 
     let video_subsystem = sdl_context.video().unwrap();
@@ -101,6 +101,7 @@ fn main() {
 
         canvas.present();
         println!("Render : {}ms", now.elapsed().as_millis());
+
 
         if let Some(sleep_time) = FRAME_TIME.checked_sub(frame_start.elapsed()) {
             println!("Sleeping extra: {}ms", sleep_time.as_millis());
