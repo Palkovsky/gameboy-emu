@@ -42,8 +42,9 @@ fn main() {
     
     let sdl_context = sdl2::init().unwrap();
     let audio_subsystem = sdl_context.audio().unwrap();
-    let audio_spec = AudioSpecDesired { freq: Some(apu::PLAYBACK_FREQUENCY as i32), channels: Some(2), samples: Some(apu::BUFF_SIZE as u16) };
-    let mut audio = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
+    let audio_spec = AudioSpecDesired { freq: Some(apu::PLAYBACK_FREQUENCY as i32), channels: Some(1), samples: Some(apu::BUFF_SIZE as u16) };
+    let mut audio1 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
+    let mut audio2 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
 
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem.window(WINDOW_NAME, SCALE * SCREEN_WIDTH as u32, SCALE * SCREEN_HEIGHT as u32)
@@ -72,7 +73,7 @@ fn main() {
         runtime.state.joypad.b(keyboard.is_scancode_pressed(Scancode::X));
         runtime.state.joypad.select(keyboard.is_scancode_pressed(Scancode::Space));
         runtime.state.joypad.start(keyboard.is_scancode_pressed(Scancode::Return) | keyboard.is_scancode_pressed(Scancode::Return2));
-        runtime.step(&mut audio); 
+        runtime.step(&mut audio1, &mut audio2); 
 
         for event in events.poll_iter() {
             if let Event::Quit {..}  |  Event::KeyDown { keycode: Some(Keycode::Escape), .. } = event {

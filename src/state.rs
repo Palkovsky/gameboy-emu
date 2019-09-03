@@ -31,7 +31,7 @@ impl <T: BankController>Runtime<T> {
         }
     }
 
-    pub fn step(&mut self, audio: &mut AudioQueue<i16>) {
+    pub fn step(&mut self, q1: &mut AudioQueue<i16>, q2: &mut AudioQueue<i16>) {
         while self.cpu_cycles < CPF {
             self.cpu_cycles += self.cpu.interrupts(&mut self.state);   
             self.cpu_cycles += self.cpu.step(&mut self.state);
@@ -43,21 +43,19 @@ impl <T: BankController>Runtime<T> {
             self.timer_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.timer, self.cpu_cycles, self.timer_cycles);
             self.apu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.apu, self.cpu_cycles, self.apu_cycles);
 
-            /* It's buggy. If one channel disabled, other won't play. */
-            let samples1 = self.state.apu.chan1_samples().clone();
-            let samples2 = self.state.apu.chan2_samples().clone();
-            if samples1.len() >= apu::BUFF_SIZE && samples2.len() >= apu::BUFF_SIZE {
-                let buff1 = &samples1[(samples1.len()-apu::BUFF_SIZE)..];
-                let buff2 = &samples2[(samples2.len()-apu::BUFF_SIZE)..];
-                let mut mixed = [0; apu::BUFF_SIZE*2];
-                for i in 0..apu::BUFF_SIZE {
-                    mixed[2*i] = buff1[i];
-                    mixed[2*i + 1] = buff2[i];
-                }
-                audio.queue(&mixed);
-                audio.resume();
-                self.state.apu.chan1_samples().clear();
-                self.state.apu.chan2_samples().clear();
+            let samples = self.state.apu.chan1_samples();
+            if samples.len() >= apu::BUFF_SIZE {
+                let buff = &samples[(samples.len()-apu::BUFF_SIZE)..];
+                q1.queue(&buff);
+                q1.resume();
+                samples.clear();
+            }
+            let samples = self.state.apu.chan2_samples();
+            if samples.len() >= apu::BUFF_SIZE {
+                let buff = &samples[(samples.len()-apu::BUFF_SIZE)..];
+                q2.queue(&buff);
+                q2.resume();
+                samples.clear();
             }
         }
             println!("NR 50: 0b{:8b}, NR 51: 0b{:8b}, NR 52: 0b{:8b}", 
