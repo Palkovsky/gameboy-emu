@@ -93,10 +93,6 @@ impl <T: BankController>State<T> {
         match addr {
             // LYC=LY flag should be updated constantly
             LYC => self.gpu.update(&mut self.mmu),
-            // NR_14 => self.apu.chan1_reset(&mut self.mmu);,
-            //NR_21 | NR_22 | NR_23 | NR_24         => self.apu.chan2_reset(&mut self.mmu),
-            //NR_30 | NR_31 | NR_32 | NR_33 | NR_34 => self.apu.chan3_reset(&mut self.mmu),
-            //NR_41 | NR_42 | NR_43 | NR_44         => self.apu.chan2_reset(&mut self.mmu),
             // Write to DIV resets it to 0
             DIV => { 
                 self.mmu.write(addr, 0); 

@@ -179,8 +179,6 @@ impl <T: SquareWaveRegisters>SquareWave<T> {
         if self.length == 0 {
             if self.regs.COUNTER_CONSECUTIVE_SELECT(mmu) {
                 self.regs._ENABLED(mmu, false); 
-            } else {
-                //self.reset(mmu);
             }
         }
     }
@@ -202,9 +200,7 @@ impl <T: SquareWaveRegisters>SquareWave<T> {
     }
 
     fn envelope(&mut self, mmu: &mut MMU<impl BankController>) {
-        if !self.regs.ENABLED(mmu) || 
-            self.volume == 0
-            { return }
+        if !self.regs.ENABLED(mmu) || self.envelope_count == 0 { return }
         if self.regs.ENVELOPE_DIRECTION(mmu) {
             if self.volume < 0xF { self.volume += 1 };
         } else {
@@ -282,6 +278,9 @@ impl APU {
         let nr_51 = mmu.read(ioregs::NR_51) >> 4;
         (nr_51 & (1 << chan)) != 0
     }
+
+    pub fn chan1_disable(&mut self, mmu: &mut MMU<impl BankController>) { self.chan1.regs._ENABLED(mmu, false); }
+    pub fn chan2_disable(&mut self, mmu: &mut MMU<impl BankController>) { self.chan2.regs._ENABLED(mmu, false); }
 
     pub fn chan1_samples(&mut self) -> &mut Vec<i16> { self.chan1.buffer() }
     pub fn chan2_samples(&mut self) -> &mut Vec<i16> { self.chan2.buffer() }
