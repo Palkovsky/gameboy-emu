@@ -191,7 +191,7 @@ impl <T: SquareWaveRegisters>SquareWave<T> {
         if self.sweep_timer == 0 {
             let delta = self.frequency/(2 as u16).pow(self.regs.SWEEP_SHIFTS(mmu) as u32);
             if self.regs.SWEEP_DIRECTION(mmu) { 
-                if delta >= self.frequency { self.frequency -= delta; }
+                if self.frequency >= delta { self.frequency -= delta; }
             } else if self.frequency + delta > 0x7FF { 
                 self.regs._ENABLED(mmu, false);
             } else {
@@ -202,7 +202,9 @@ impl <T: SquareWaveRegisters>SquareWave<T> {
     }
 
     fn envelope(&mut self, mmu: &mut MMU<impl BankController>) {
-        if !self.regs.ENABLED(mmu) || self.envelope_count == 0 { return }
+        if !self.regs.ENABLED(mmu) || 
+            self.volume == 0
+            { return }
         if self.regs.ENVELOPE_DIRECTION(mmu) {
             if self.volume < 0xF { self.volume += 1 };
         } else {
