@@ -1,8 +1,7 @@
 use super::*;
-use sdl2::audio::AudioQueue;
 
 /* CPU cycles per frame */
-const CPF: u64 = (1<<20)/60;
+pub const CPU_CYCLES_PER_FRAME: u64 = (1<<20)/60;
 
 /*
  * Runtime is used to connect CPU with everything stored in State(memory, IO devices).
@@ -27,42 +26,25 @@ impl <T: BankController>Runtime<T> {
             cpu_cycles: 0,
             gpu_cycles: 0, 
             apu_cycles: 0,
-            timer_cycles: 0, 
+            timer_cycles: 0,
         }
     }
 
-    pub fn step(&mut self, q1: &mut AudioQueue<i16>, q2: &mut AudioQueue<i16>) {
-        while self.cpu_cycles < CPF {
-            self.cpu_cycles += self.cpu.interrupts(&mut self.state);   
-            self.cpu_cycles += self.cpu.step(&mut self.state);
-            self.state.joypad.step(&mut self.state.mmu);
-            if self.state.dma.active() {
-                self.state.dma.step(&mut self.state.mmu);
-            }   
-            self.gpu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.gpu, self.cpu_cycles, self.gpu_cycles);
-            self.timer_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.timer, self.cpu_cycles, self.timer_cycles);
-            self.apu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.apu, self.cpu_cycles, self.apu_cycles);
+    // Execute next instruction, handle interrupts and let other devices catchup.
+    pub fn step(&mut self) {
+        self.cpu_cycles += self.cpu.interrupts(&mut self.state);   
+        self.cpu_cycles += self.cpu.step(&mut self.state);
+        self.state.joypad.step(&mut self.state.mmu);
+        if self.state.dma.active() {
+            self.state.dma.step(&mut self.state.mmu);
+        }   
+        self.gpu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.gpu, self.cpu_cycles, self.gpu_cycles);
+        self.timer_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.timer, self.cpu_cycles, self.timer_cycles);
+        self.apu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.apu, self.cpu_cycles, self.apu_cycles);
+    }
 
-            let samples = self.state.apu.chan1_samples();
-            if samples.len() >= apu::BUFF_SIZE {
-                let buff = &samples[(samples.len()-apu::BUFF_SIZE)..];
-                q1.queue(&buff);
-                q1.resume();
-                samples.clear();
-            }
-            let samples = self.state.apu.chan2_samples();
-            if samples.len() >= apu::BUFF_SIZE {
-                let buff = &samples[(samples.len()-apu::BUFF_SIZE)..];
-                q2.queue(&buff);
-                q2.resume();
-                samples.clear();
-            }
-        }
-            println!("NR 50: 0b{:8b}, NR 51: 0b{:8b}, NR 52: 0b{:8b}", 
-                    self.state.mmu.read(ioregs::NR_50),
-                    self.state.mmu.read(ioregs::NR_51), 
-                    self.state.mmu.read(ioregs::NR_52));
-
+    pub fn cpu_cycles(&self) -> u64 { self.cpu_cycles }
+    pub fn reset_cycles(&mut self) {
         self.cpu_cycles = 0;
         self.gpu_cycles = 0;
         self.apu_cycles = 0;

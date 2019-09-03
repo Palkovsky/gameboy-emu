@@ -1,6 +1,7 @@
 #![allow(non_snake_case, non_camel_case_types)]
 
 use super::*;
+use sdl2::audio::AudioQueue;
 
 const CPU_FREQUENCY: u32 = 1 << 20;
 const SEQUENCER_FREQUENCY: u32 = 512;
@@ -135,7 +136,7 @@ impl <T: SquareWaveRegisters>SquareWave<T> {
     }
 
     fn reset(&mut self, mmu: &mut MMU<impl BankController>) {
-        self.buffer().clear();
+        self.buff.clear();
         self.frequency = self.regs.FREQ(mmu);
         self.volume = self.regs.INITIAL_VOLUME(mmu);
         self.length = self.regs.SOUND_LENGTH(mmu);
@@ -170,9 +171,7 @@ impl <T: SquareWaveRegisters>SquareWave<T> {
         }
     }
 
-    pub fn buffer(&mut self) -> &mut Vec<i16> { 
-        &mut self.buff
-    }
+    pub fn buffer(&mut self) -> &mut Vec<i16> { &mut self.buff }
 
     fn length(&mut self, mmu: &mut MMU<impl BankController>) {
         if !self.regs.ENABLED(mmu) || self.regs.SOUND_LENGTH(mmu) == 0 { return }
