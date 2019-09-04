@@ -42,11 +42,8 @@ fn main() {
     
     let sdl_context = sdl2::init().unwrap();
     let audio_subsystem = sdl_context.audio().unwrap();
-    let audio_spec = AudioSpecDesired { freq: Some(apu::PLAYBACK_FREQUENCY as i32), channels: Some(1), samples: Some(apu::BUFF_SIZE as u16) };
-    let q1 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
-    let q2 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
-    let q3 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
-    let q4 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
+    let audio_spec = AudioSpecDesired { freq: Some(apu::PLAYBACK_FREQUENCY as i32), channels: Some(2), samples: Some(apu::BUFF_SIZE as u16) };
+    let q = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
 
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem.window(WINDOW_NAME, SCALE * SCREEN_WIDTH as u32, SCALE * SCREEN_HEIGHT as u32)
@@ -69,22 +66,12 @@ fn main() {
         while runtime.cpu_cycles() < CPU_CYCLES_PER_FRAME {
             runtime.step(); 
             let apu = &mut runtime.state.apu;
-            if APU::SO1(&mut runtime.state.mmu, 1) &&  APU::SO2(&mut runtime.state.mmu, 1) {
-                play_samples(&q1, apu.chan1_samples());
-            }
-            if APU::SO1(&mut runtime.state.mmu, 2) && APU::SO2(&mut runtime.state.mmu, 2) {
-                play_samples(&q2, apu.chan2_samples());
-            }
-            if APU::SO1(&mut runtime.state.mmu, 3) && APU::SO2(&mut runtime.state.mmu, 3) {
-                play_samples(&q3, apu.chan3_samples());
-            }
-            if APU::SO1(&mut runtime.state.mmu, 4) && APU::SO2(&mut runtime.state.mmu, 4) {
-                play_samples(&q4, apu.chan4_samples());
-            }
+            play_samples(&q, apu);
         }
         runtime.reset_cycles();
         // Print how long internal updates took        
         println!("Internal: {}ms", now.elapsed().as_millis());
+        println!("NR 51: 0b{:8b}", runtime.state.safe_read(ioregs::NR_52));
 
         // Measure how long SDL part takes
         let now = Instant::now();
@@ -130,11 +117,22 @@ fn main() {
     }
 }
 
-fn play_samples(queue: &AudioQueue<i16>, samples: &mut Vec<i16>) {
-    while samples.len() >= apu::BUFF_SIZE {
-        let buff = &samples[..apu::BUFF_SIZE];
-        queue.queue(&buff);
-        queue.resume();
-        for i in (0..apu::BUFF_SIZE).rev() { samples.remove(i); }
+fn play_samples(queue: &AudioQueue<i16>, apu: &mut APU) {
+    let left = apu.left_samples().clone();
+    if left.len() < apu::BUFF_SIZE { return }
+    let lBuff = &left[left.len()-apu::BUFF_SIZE..];
+
+    let right = apu.right_samples().clone();
+    if right.len() < apu::BUFF_SIZE { return }
+    let rBuff = &right[right.len()-apu::BUFF_SIZE..];
+
+    let mut mixed = [0; apu::BUFF_SIZE*2];
+    for i in 0..apu::BUFF_SIZE {
+        mixed[2*i] = lBuff[i];
+        mixed[2*i+1] = rBuff[i];
     }
+    queue.queue(&mixed);
+    queue.resume();
+    apu.left_samples().clear();
+    apu.right_samples().clear();
 }
