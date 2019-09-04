@@ -69,7 +69,7 @@ fn main() {
         while runtime.cpu_cycles() < CPU_CYCLES_PER_FRAME {
             runtime.step(); 
             let apu = &mut runtime.state.apu;
-            if APU::SO1(&mut runtime.state.mmu, 1) && APU::SO2(&mut runtime.state.mmu, 1) {
+            if APU::SO1(&mut runtime.state.mmu, 1) &&  APU::SO2(&mut runtime.state.mmu, 1) {
                 play_samples(&q1, apu.chan1_samples());
             }
             if APU::SO1(&mut runtime.state.mmu, 2) && APU::SO2(&mut runtime.state.mmu, 2) {

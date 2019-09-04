@@ -13,7 +13,7 @@ pub const PLAYBACK_FREQUENCY: u32 = 44100;
 const SAMPLE_APPEND_RATE: u16 = (CPU_FREQUENCY/PLAYBACK_FREQUENCY) as u16 + 1;
 const WAVE_RAM_SAMPLE_COUNT: usize = 32;
 const WAVE_RAM_BASE: u16 = 0xFF30;
-const NOISE_LSFR_SIZE: usize = 16;
+const NOISE_LSFR_SIZE: usize = 15;
 
 const DUTY_CYCLES: [[bool; DUTY_CYCLE_STEPS as usize]; DUTY_CYCLE_COUNT as usize] = [ 
     [false, true, true, true, true, true, true, true], // 12.5%
@@ -330,7 +330,7 @@ impl NoiseChannel {
             envelope_count: Self::ENVELOPE_SHIFTS(mmu),
             timer: Self::FREQ_RATIO(mmu) << Self::FREQ_SHIFT_CLOCK(mmu),
             sample_counter: 0,
-            lsfr: [false; NOISE_LSFR_SIZE],
+            lsfr: [true; NOISE_LSFR_SIZE],
             buff: Vec::with_capacity(BUFF_SIZE),
         }
     }
@@ -342,6 +342,7 @@ impl NoiseChannel {
         self.timer = Self::FREQ_RATIO(mmu) << Self::FREQ_SHIFT_CLOCK(mmu);
         self.envelope_count = Self::ENVELOPE_SHIFTS(mmu);
         self.sample_counter = 0;
+        self.lsfr = [true; NOISE_LSFR_SIZE];
     }
 
     fn tick(&mut self, mmu: &mut MMU<impl BankController>) {
@@ -355,18 +356,18 @@ impl NoiseChannel {
         // Update timer and position in wave ram
         if self.timer > 0 { self.timer -= 1 };
         if self.timer == 0 {
-            let new = self.lsfr[1] ^ self.lsfr[0];
-            // Shift it right
+            let new = self.lsfr[0] ^ self.lsfr[1];
             for i in 1..NOISE_LSFR_SIZE { self.lsfr[i-1] = self.lsfr[i]; }
-            // Append at the end
-            if Self::LSFR_7BIT(mmu) { self.lsfr[(NOISE_LSFR_SIZE-1)/2] = new; } 
-            else                    { self.lsfr[NOISE_LSFR_SIZE-1] = new; }
+            self.lsfr[NOISE_LSFR_SIZE-1] = new;
+            if Self::LSFR_7BIT(mmu) { 
+                self.lsfr[NOISE_LSFR_SIZE/2 - 1] = new; 
+            } 
             self.timer = Self::FREQ_RATIO(mmu) << Self::FREQ_SHIFT_CLOCK(mmu);
         }
         // Generate sample
         self.sample_counter += 1;
         if self.sample_counter == SAMPLE_APPEND_RATE {
-            let sample = if !self.lsfr[0] { (i16::max_value()/0xF)*(self.volume as i16) }
+            let sample = if self.lsfr[0] { (i16::max_value()/0xF)*(self.volume as i16) }
                          else { 0 };
             self.buff.push(sample);
             self.sample_counter = 0;
@@ -378,7 +379,7 @@ impl NoiseChannel {
         if self.length > 0  { self.length -= 1; }
         if self.length == 0 {
             if Self::COUNTER_CONSECUTIVE_SELECT(mmu) {
-                Self::_ENABLED(mmu, false); 
+               Self::_ENABLED(mmu, false); 
             }
         }
     }
@@ -407,7 +408,7 @@ impl NoiseChannel {
     fn FREQ_RATIO(mmu: &mut MMU<impl BankController>) -> u16 {
         let x = (mmu.read(ioregs::NR_43) & 7) as u16;
         if x == 0 { 8 }
-        else      { 8*x }
+        else      { 16*x }
     }
     fn LSFR_7BIT(mmu: &mut MMU<impl BankController>) -> bool { mmu.read_bit(ioregs::NR_43, 3) }
     fn FREQ_SHIFT_CLOCK(mmu: &mut MMU<impl BankController>) -> u16 {
@@ -416,7 +417,7 @@ impl NoiseChannel {
 
     // NR 44 - Counter/Consecutive selection and initial flags
     fn COUNTER_CONSECUTIVE_SELECT(mmu: &mut MMU<impl BankController>) -> bool { mmu.read_bit(ioregs::NR_44, 6)  }
-    fn INITIAL(mmu: &mut MMU<impl BankController>) -> bool {mmu.read_bit(ioregs::NR_44, 7) }
+    fn INITIAL(mmu: &mut MMU<impl BankController>) -> bool { mmu.read_bit(ioregs::NR_44, 7) }
     fn _INITIAL(mmu: &mut MMU<impl BankController>, value: bool) { mmu.set_bit(ioregs::NR_44, 7, value) }
 
     // NR52 - Sound ON/OFF
