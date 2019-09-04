@@ -127,10 +127,10 @@ fn main() {
 }
 
 fn play_samples(queue: &AudioQueue<i16>, samples: &mut Vec<i16>) {
-    if samples.len() >= apu::BUFF_SIZE {
-        let buff = &samples[(samples.len()-apu::BUFF_SIZE)..];
+    while samples.len() >= apu::BUFF_SIZE {
+        let buff = &samples[..apu::BUFF_SIZE];
         queue.queue(&buff);
         queue.resume();
-        samples.clear();
+        for i in (0..apu::BUFF_SIZE).rev() { samples.remove(i); }
     }
 }

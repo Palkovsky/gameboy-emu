@@ -38,9 +38,9 @@ impl <T: BankController>Runtime<T> {
         if self.state.dma.active() {
             self.state.dma.step(&mut self.state.mmu);
         }   
-        self.gpu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.gpu, self.cpu_cycles, self.gpu_cycles);
+        self.gpu_cycles   = Runtime::catchup(&mut self.state.mmu, &mut self.state.gpu, self.cpu_cycles, self.gpu_cycles);
         self.timer_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.timer, self.cpu_cycles, self.timer_cycles);
-        self.apu_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.apu, self.cpu_cycles, self.apu_cycles);
+        self.apu_cycles   = Runtime::catchup(&mut self.state.mmu, &mut self.state.apu, self.cpu_cycles, self.apu_cycles);
     }
 
     pub fn cpu_cycles(&self) -> u64 { self.cpu_cycles }
@@ -116,14 +116,5 @@ impl <T: BankController>State<T> {
 
     pub fn read_word(&mut self, addr: Addr) -> Word {
         self.safe_read(addr) as u16 + ((self.safe_read(addr+1) as u16) << 8)
-    }
-
-    fn is_addr_allowed(&mut self, addr: Addr) -> bool {
-        let is_vram = addr >= VRAM_ADDR && addr < VRAM_ADDR + VRAM_SIZE as Addr;
-        let is_oam = addr >= OAM_ADDR && addr < OAM_ADDR + OAM_SIZE as Addr;
-
-        if GPU::MODE(&mut self.mmu) == GPUMode::LCD_TRANSFER && is_vram { return false }
-        if GPU::MODE(&mut self.mmu) == GPUMode::OAM_SEARCH && (is_oam || is_vram) { return false }
-        true
     }
 }

@@ -9,7 +9,7 @@ const SEQUENCER_STEP_COUNT: u16 = 8;
 const DUTY_CYCLE_COUNT: u16 = 4;
 const DUTY_CYCLE_STEPS: u16 = 8;
 pub const BUFF_SIZE: usize = 1024;
-pub const PLAYBACK_FREQUENCY: u32 = 96000;
+pub const PLAYBACK_FREQUENCY: u32 = 44100;
 const SAMPLE_APPEND_RATE: u16 = (CPU_FREQUENCY/PLAYBACK_FREQUENCY) as u16 + 1;
 const WAVE_RAM_SAMPLE_COUNT: usize = 32;
 const WAVE_RAM_BASE: u16 = 0xFF30;
@@ -165,7 +165,11 @@ impl <T: SquareWaveRegisters>SquareWaveChannel<T> {
         self.sample_counter += 1;
         if self.sample_counter == SAMPLE_APPEND_RATE {
             let is_on  = DUTY_CYCLES[self.regs.WAVE_DUTY(mmu) as usize][self.duty_cycle as usize];
-            let sample = if is_on { (i16::max_value()/0xF)*(self.volume as i16) } else { 0 };
+            let sample = if is_on { 
+                (i16::max_value()/0xF)*(self.volume as i16) 
+            } else { 
+                0
+            };
             self.buff.push(sample);
             self.sample_counter = 0;
         }
@@ -174,7 +178,7 @@ impl <T: SquareWaveRegisters>SquareWaveChannel<T> {
     fn buffer(&mut self) -> &mut Vec<i16> { &mut self.buff }
 
     fn length(&mut self, mmu: &mut MMU<impl BankController>) {
-        if !self.regs.ENABLED(mmu) || self.regs.SOUND_LENGTH(mmu) == 0 { return }
+        if !self.regs.ENABLED(mmu) { return }
         if self.length > 0 { self.length -= 1; }
         if self.length == 0 {
             if self.regs.COUNTER_CONSECUTIVE_SELECT(mmu) {
@@ -201,10 +205,10 @@ impl <T: SquareWaveRegisters>SquareWaveChannel<T> {
 
     fn envelope(&mut self, mmu: &mut MMU<impl BankController>) {
         if !self.regs.ENABLED(mmu) || self.envelope_count == 0 { return }
-        if self.regs.ENVELOPE_DIRECTION(mmu) {
-            if self.volume < 0xF { self.volume += 1 };
+        if !self.regs.ENVELOPE_DIRECTION(mmu) {
+            if self.volume < 0xF { self.volume += 1; }
         } else {
-            if self.volume > 0   { self.volume -= 1 };
+            if self.volume > 0   { self.volume -= 1 }
         }
         self.envelope_count -= 1;
     }
@@ -232,12 +236,10 @@ impl WaveRamChannel {
     }
 
     fn reset(&mut self, mmu: &mut MMU<impl BankController>) {
-        self.buff.clear();
+        //self.buff.clear();
         self.length = Self::SOUND_LENGTH(mmu);
         self.frequency = Self::FREQ(mmu);
-        self.timer = 2048 - self.frequency;
-        self.sample_counter = 0;
-        self.position_counter = 0;
+        self.timer = (2048 - self.frequency)/2;
     }
 
     fn tick(&mut self, mmu: &mut MMU<impl BankController>) {
@@ -252,14 +254,18 @@ impl WaveRamChannel {
         if self.timer > 0 { self.timer -= 1 };
         if self.timer == 0 {
             self.position_counter = (self.position_counter + 1) % WAVE_RAM_SAMPLE_COUNT;
-            self.timer = 2048 - self.frequency;
+            self.timer = (2048 - self.frequency)/2;
         }
         // Generate sample
         self.sample_counter += 1;
         if self.sample_counter == SAMPLE_APPEND_RATE {
             let offset = (self.position_counter as u16)/2;
             let sample_byte = mmu.read(WAVE_RAM_BASE + offset);
-            let mut volume = if offset % 2 == 0 { sample_byte >> 4 } else { sample_byte & 0xF };
+            let mut volume = if self.position_counter % 2 == 0 { 
+                sample_byte >> 4 
+            } else { 
+                sample_byte & 0xF 
+            };
             volume = match Self::OUTPUT_LEVEL(mmu) {
                 0 => 0,
                 1 => volume,
@@ -274,7 +280,7 @@ impl WaveRamChannel {
     }
 
     fn length(&mut self, mmu: &mut MMU<impl BankController>) {
-        if !Self::ENABLED(mmu) || Self::SOUND_LENGTH(mmu) == 0 { return }
+        if !Self::ENABLED(mmu) { return }
         if self.length > 0  { self.length -= 1; }
         if self.length == 0 {
             if Self::COUNTER_CONSECUTIVE_SELECT(mmu) {
