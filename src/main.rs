@@ -46,6 +46,7 @@ fn main() {
     let q1 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
     let q2 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
     let q3 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
+    let q4 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
 
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem.window(WINDOW_NAME, SCALE * SCREEN_WIDTH as u32, SCALE * SCREEN_HEIGHT as u32)
@@ -76,6 +77,9 @@ fn main() {
             }
             if APU::SO1(&mut runtime.state.mmu, 3) && APU::SO2(&mut runtime.state.mmu, 3) {
                 play_samples(&q3, apu.chan3_samples());
+            }
+            if APU::SO1(&mut runtime.state.mmu, 4) && APU::SO2(&mut runtime.state.mmu, 4) {
+                play_samples(&q4, apu.chan4_samples());
             }
         }
         runtime.reset_cycles();
