@@ -45,6 +45,7 @@ fn main() {
     let audio_spec = AudioSpecDesired { freq: Some(apu::PLAYBACK_FREQUENCY as i32), channels: Some(1), samples: Some(apu::BUFF_SIZE as u16) };
     let q1 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
     let q2 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
+    let q3 = audio_subsystem.open_queue::<i16, _>(None, &audio_spec).unwrap();
 
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem.window(WINDOW_NAME, SCALE * SCREEN_WIDTH as u32, SCALE * SCREEN_HEIGHT as u32)
@@ -72,6 +73,9 @@ fn main() {
             }
             if APU::SO1(&mut runtime.state.mmu, 2) && APU::SO2(&mut runtime.state.mmu, 2) {
                 play_samples(&q2, apu.chan2_samples());
+            }
+            if APU::SO1(&mut runtime.state.mmu, 3) && APU::SO2(&mut runtime.state.mmu, 3) {
+                play_samples(&q3, apu.chan3_samples());
             }
         }
         runtime.reset_cycles();
