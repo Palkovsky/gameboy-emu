@@ -12,10 +12,10 @@ What works:
 * MBC1, MBC2, MBC3 mappers
 * Timer
 * Controls
+* APU
 
 What doesn't work:
 
-* APU(Audio Processing Unit)
 * Link cable
 * SGB(Super Game Boy)
 * CGB(Gameboy Color)
