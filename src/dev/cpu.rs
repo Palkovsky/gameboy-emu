@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_camel_case_types)]
+#![allow(non_snake_case, non_camel_case_types, dead_code)]
 
 use super::*;
 use std::fmt;
@@ -176,9 +176,8 @@ fn handle_cb(cpu: &mut CPU, s: &mut State<impl BankController>, op: u8) -> u8 {
             let val = cpu.reg(s, reg_idx);
             let updated = val | (1 << bit_idx);
             cpu.reg_set(s, reg_idx, updated);
-        },
-        _ => panic!("Invalid 0xCB instruction: {}", op),
-    };
+        }
+    }
 
     // Calculate number of cycles
     if op & 0xF == 0x6 || op & 0xF == 0xE { 4 } else { 2 }
@@ -860,21 +859,19 @@ const IVT: [u8; IVT_SIZE] = [0x40, 0x48, 0x50, 0x58, 0x60];
 impl CPU {
     pub fn new() -> Self { Default::default() }
 
-    // step() executes single instruction and returns number of taken machine cycles
+    // step() executes single instruction and returns number of machine cycles taken
     pub fn step(&mut self, state: &mut State<impl BankController>) -> u64 {
-        // If HALT or STOP set CPU executes NOPs without incrementing PC.
+        // If HALT or STOP flags set, CPU executes NOPs without incrementing PC.
         if self.HALT || self.STOP { return 1 }
 
         let pc = self.PC.val();
         let op = state.safe_read(pc);
     
-        let Instruction { size, handler: mut f, mnemo } = decode(op)
+        let Instruction { size, handler: mut f, mnemo: _ } = decode(op)
             .unwrap_or_else(|| panic!("Unrecognized OPCODE 0x{:x} at 0x{:x}. {:?}", op, pc, self));
         let argc = size - 1;
         let op1 = if argc >= 1 { state.safe_read(pc+1) } else { 0 };
         let op2 = if argc >= 2 { state.safe_read(pc+2) } else { 0 };
-
-        //println!("PC: 0x{:X}, OP: 0x{:x}, INST: {}, HL: 0x{:x}, B: 0x{:x}, A: 0x{:x}", pc, op, mnemo, self.HL.val(), self.BC.up(), self.A);
 
         self.PC.set(safe_w_add(self.PC.val(), size as u16));
         f(self, state, op, op1, op2) as u64

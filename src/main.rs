@@ -9,7 +9,7 @@ pub use state::*;
 
 use std::io::prelude::*;
 use std::time::{Instant, Duration};
-use std::{env, fs, io, thread};
+use std::{env, fs, thread};
 
 use sdl2::pixels::Color;
 use sdl2::event::Event;
@@ -37,8 +37,8 @@ fn main() {
 
     // Mapper type shouldn't be hardcoded here
     let mut runtime = Runtime::new(mbc::MBC3::new(rom));
-    runtime.state.mmu.disable_bootrom();
-    runtime.cpu.PC.set(0x100);
+    //runtime.state.mmu.disable_bootrom();
+    //runtime.cpu.PC.set(0x100);
     
     let sdl_context = sdl2::init().unwrap();
     let audio_subsystem = sdl_context.audio().unwrap();
@@ -71,7 +71,6 @@ fn main() {
         runtime.reset_cycles();
         // Print how long internal updates took        
         println!("Internal: {}ms", now.elapsed().as_millis());
-        println!("NR 51: 0b{:8b}", runtime.state.safe_read(ioregs::NR_52));
 
         // Measure how long SDL part takes
         let now = Instant::now();
@@ -120,16 +119,16 @@ fn main() {
 fn play_samples(queue: &AudioQueue<i16>, apu: &mut APU) {
     let left = apu.left_samples().clone();
     if left.len() < apu::BUFF_SIZE { return }
-    let lBuff = &left[left.len()-apu::BUFF_SIZE..];
+    let l_buff = &left[left.len()-apu::BUFF_SIZE..];
 
     let right = apu.right_samples().clone();
     if right.len() < apu::BUFF_SIZE { return }
-    let rBuff = &right[right.len()-apu::BUFF_SIZE..];
+    let r_buff = &right[right.len()-apu::BUFF_SIZE..];
 
     let mut mixed = [0; apu::BUFF_SIZE*2];
     for i in 0..apu::BUFF_SIZE {
-        mixed[2*i] = lBuff[i];
-        mixed[2*i+1] = rBuff[i];
+        mixed[2*i] = l_buff[i];
+        mixed[2*i+1] = r_buff[i];
     }
     queue.queue(&mixed);
     queue.resume();

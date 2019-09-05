@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::fmt::{Formatter, Result, Display};
 use std::str;
 

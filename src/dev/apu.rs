@@ -72,9 +72,9 @@ impl SquareWaveRegisters for Channel1Regs {
 struct Channel2Regs;
 impl SquareWaveRegisters for Channel2Regs {
     // No sweep in channel2
-    fn SWEEP_TIME(&self, mmu: &mut MMU<impl BankController>) -> u16 { 0 }
-    fn SWEEP_SHIFTS(&self, mmu: &mut MMU<impl BankController>) -> u8 { 0 }
-    fn SWEEP_DIRECTION(&self, mmu: &mut MMU<impl BankController>) -> bool { false }
+    fn SWEEP_TIME(&self, _: &mut MMU<impl BankController>) -> u16 { 0 }
+    fn SWEEP_SHIFTS(&self, _: &mut MMU<impl BankController>) -> u8 { 0 }
+    fn SWEEP_DIRECTION(&self, _: &mut MMU<impl BankController>) -> bool { false }
 
     // NR 21 - Length and wave duty registers
     fn SOUND_LENGTH(&self, mmu: &mut MMU<impl BankController>) -> u16 { (mmu.read(ioregs::NR_21) & 0x3F) as u16 }
@@ -479,37 +479,37 @@ impl <T: BankController>Clocked<T> for APU {
 
         self.sample_counter += 1;
         if self.sample_counter == SAMPLE_APPEND_RATE {
-            let mut lSample = 0;
-            let mut rSample = 0;
+            let mut lSample = 0i64;
+            let mut rSample = 0i64;
             let mut lActive = 0;
             let mut rActive = 0;
             if self.chan1_samples().len() > 0 {
-                let val = *self.chan1_samples().first().unwrap();
-                if APU::SO1(mmu, 1) { lActive += 1; lSample += val/4; }
-                if APU::SO2(mmu, 1) { rActive += 1; rSample += val/4; }
+                let val = *self.chan1_samples().first().unwrap() as i64;
+                if APU::SO1(mmu, 1) { lActive += 1; lSample += val; }
+                if APU::SO2(mmu, 1) { rActive += 1; rSample += val; }
                 self.chan1_samples().remove(0);
             }
             if self.chan2_samples().len() > 0 {
-                let val = *self.chan2_samples().first().unwrap();
-                if APU::SO1(mmu, 2) { lActive += 1; lSample += val/4; }
-                if APU::SO2(mmu, 2) { rActive += 1; rSample += val/4; }
+                let val = *self.chan2_samples().first().unwrap() as i64;
+                if APU::SO1(mmu, 2) { lActive += 1; lSample += val; }
+                if APU::SO2(mmu, 2) { rActive += 1; rSample += val; }
                 self.chan2_samples().remove(0);
             }
             if self.chan3_samples().len() > 0 {
-                let val = *self.chan3_samples().first().unwrap();
-                if APU::SO1(mmu, 3) { lActive += 1; lSample += val/4; }
-                if APU::SO2(mmu, 3) { rActive += 1; rSample += val/4; }
+                let val = *self.chan3_samples().first().unwrap() as i64;
+                if APU::SO1(mmu, 3) { lActive += 1; lSample += val; }
+                if APU::SO2(mmu, 3) { rActive += 1; rSample += val; }
                 self.chan3_samples().remove(0);
             }        
             if self.chan4_samples().len() > 0 {
-                let val = *self.chan4_samples().first().unwrap();
-                if APU::SO1(mmu, 4) { lActive += 1; lSample += val/4; }
-                if APU::SO2(mmu, 4) { rActive += 1; rSample += val/4; }
+                let val = *self.chan4_samples().first().unwrap() as i64;
+                if APU::SO1(mmu, 4) { lActive += 1; lSample += val; }
+                if APU::SO2(mmu, 4) { rActive += 1; rSample += val; }
                 self.chan4_samples().remove(0);
             }
             
-            self.left.push(lSample.checked_div(lActive).unwrap_or(0));
-            self.right.push(rSample.checked_div(rActive).unwrap_or(0));
+            self.left.push(lSample.checked_div(lActive).unwrap_or(0) as i16);
+            self.right.push(rSample.checked_div(rActive).unwrap_or(0) as i16);
             self.sample_counter = 0;
         }
     }
@@ -530,7 +530,7 @@ impl APU {
         }
     }
 
-    /* Is channel conected to terminal 1? */
+    /* Is channel conected to left channel? */
     pub fn SO1(mmu: &mut MMU<impl BankController>, chan: u8) -> bool {
         if chan > 4  || chan == 0 { return false }
         let chan = chan - 1;
@@ -538,7 +538,7 @@ impl APU {
         (nr_51 & (1 << chan)) != 0
     }
     
-    /* Is channel conected to terminal 2? */
+    /* Is channel conected to right channel? */
     pub fn SO2(mmu: &mut MMU<impl BankController>, chan: u8) -> bool {
         if chan > 4  || chan == 0 { return false }
         let chan = chan - 1;
