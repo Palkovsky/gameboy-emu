@@ -176,7 +176,7 @@ impl <T: SquareWaveRegisters>SquareWaveChannel<T> {
     fn buffer(&mut self) -> &mut Vec<i16> { &mut self.buff }
 
     fn length(&mut self, mmu: &mut MMU<impl BankController>) {
-        if !self.regs.ENABLED(mmu) { return }
+        if !self.regs.ENABLED(mmu) || self.length == 0 { return }
         if self.length > 0 { self.length -= 1; }
         if self.length == 0 {
             if self.regs.COUNTER_CONSECUTIVE_SELECT(mmu) {
@@ -374,7 +374,7 @@ impl NoiseChannel {
     }
 
     fn length(&mut self, mmu: &mut MMU<impl BankController>) {
-        if !Self::ENABLED(mmu) { return }
+        if !Self::ENABLED(mmu) || self.length == 0 { return }
         if self.length > 0  { self.length -= 1; }
         if self.length == 0 {
             if Self::COUNTER_CONSECUTIVE_SELECT(mmu) {
@@ -476,7 +476,6 @@ impl <T: BankController>Clocked<T> for APU {
             self.sequencer_cycle = 0;
             self.sequencer_step = (self.sequencer_step + 1) % SEQUENCER_STEP_COUNT;
         }
-
         self.sample_counter += 1;
         if self.sample_counter == SAMPLE_APPEND_RATE {
             let mut lSample = 0i64;
@@ -487,25 +486,25 @@ impl <T: BankController>Clocked<T> for APU {
                 let val = *self.chan1_samples().first().unwrap() as i64;
                 if APU::SO1(mmu, 1) { lActive += 1; lSample += val; }
                 if APU::SO2(mmu, 1) { rActive += 1; rSample += val; }
-                self.chan1_samples().remove(0);
+                self.chan1_samples().clear();
             }
             if self.chan2_samples().len() > 0 {
                 let val = *self.chan2_samples().first().unwrap() as i64;
                 if APU::SO1(mmu, 2) { lActive += 1; lSample += val; }
                 if APU::SO2(mmu, 2) { rActive += 1; rSample += val; }
-                self.chan2_samples().remove(0);
+                self.chan2_samples().clear();
             }
             if self.chan3_samples().len() > 0 {
                 let val = *self.chan3_samples().first().unwrap() as i64;
                 if APU::SO1(mmu, 3) { lActive += 1; lSample += val; }
                 if APU::SO2(mmu, 3) { rActive += 1; rSample += val; }
-                self.chan3_samples().remove(0);
+                self.chan3_samples().clear();
             }        
             if self.chan4_samples().len() > 0 {
                 let val = *self.chan4_samples().first().unwrap() as i64;
                 if APU::SO1(mmu, 4) { lActive += 1; lSample += val; }
                 if APU::SO2(mmu, 4) { rActive += 1; rSample += val; }
-                self.chan4_samples().remove(0);
+                self.chan4_samples().clear();
             }
             
             self.left.push(lSample.checked_div(lActive).unwrap_or(0) as i16);
@@ -554,10 +553,10 @@ impl APU {
     pub fn chan3_disable(&mut self, mmu: &mut MMU<impl BankController>) { WaveRamChannel::_ENABLED(mmu, false); }
     pub fn chan4_disable(&mut self, mmu: &mut MMU<impl BankController>) { NoiseChannel::_ENABLED(mmu, false); }
 
-    fn chan1_samples(&mut self) -> &mut Vec<i16> { self.chan1.buffer() }
-    fn chan2_samples(&mut self) -> &mut Vec<i16> { self.chan2.buffer() }
-    fn chan3_samples(&mut self) -> &mut Vec<i16> { self.chan3.buffer() }
-    fn chan4_samples(&mut self) -> &mut Vec<i16> { self.chan4.buffer() }
+    pub fn chan1_samples(&mut self) -> &mut Vec<i16> { self.chan1.buffer() }
+    pub fn chan2_samples(&mut self) -> &mut Vec<i16> { self.chan2.buffer() }
+    pub fn chan3_samples(&mut self) -> &mut Vec<i16> { self.chan3.buffer() }
+    pub fn chan4_samples(&mut self) -> &mut Vec<i16> { self.chan4.buffer() }
 
     pub fn chan1_reset(&mut self, mmu: &mut MMU<impl BankController>) { self.chan1.reset(mmu); }
     pub fn chan2_reset(&mut self, mmu: &mut MMU<impl BankController>) { self.chan2.reset(mmu); }
