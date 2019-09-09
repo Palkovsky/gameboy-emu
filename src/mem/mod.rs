@@ -1,11 +1,10 @@
-pub mod mmu;
-pub mod mbc;
 pub mod ioregs;
+pub mod mbc;
+pub mod mmu;
 
-pub use mmu::*;
-pub use mbc::*;
 pub use ioregs::*;
-
+pub use mbc::*;
+pub use mmu::*;
 
 pub type Addr = u16;
 pub type Byte = u8;
@@ -14,7 +13,7 @@ pub type MutMem<'a> = &'a mut [Byte];
 
 /*
  * Base addresses of different memory map segments.
- */ 
+ */
 pub const ROM_BASE_ADDR: Addr = 0x0000;
 pub const ROM_SWITCHABLE_ADDR: Addr = 0x4000;
 pub const VRAM_ADDR: Addr = 0x8000;

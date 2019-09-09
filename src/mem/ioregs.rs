@@ -1,4 +1,4 @@
-use super::{IO_REGS_ADDR, MutMem, Byte};
+use super::{Byte, MutMem, IO_REGS_ADDR};
 
 pub const P1: u16 = 0xFF00;
 pub const SB: u16 = 0xFF01;
@@ -51,7 +51,9 @@ pub struct IORegs {
 
 impl IORegs {
     pub fn new() -> Self {
-        let mut res = Self { regs: vec![0u8; 0x100] };
+        let mut res = Self {
+            regs: vec![0u8; 0x100],
+        };
 
         // Set default non-zero values
 
@@ -64,7 +66,7 @@ impl IORegs {
         res
     }
 
-    pub fn slice(&mut self) -> MutMem { 
+    pub fn slice(&mut self) -> MutMem {
         &mut self.regs[..]
     }
 

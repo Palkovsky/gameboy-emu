@@ -1,7 +1,7 @@
 use super::*;
 
 /* CPU cycles per frame */
-pub const CPU_CYCLES_PER_FRAME: u64 = (1<<20)/60;
+pub const CPU_CYCLES_PER_FRAME: u64 = (1 << 20) / 60;
 
 /*
  * Runtime is used to connect CPU with everything stored in State(memory, IO devices).
@@ -17,14 +17,15 @@ pub struct Runtime<T: BankController> {
     timer_cycles: u64,
 }
 
-impl <T: BankController>Runtime<T> {
+impl<T: BankController> Runtime<T> {
     pub fn new(mapper: T) -> Self {
         let state = State::new(mapper);
         let cpu = CPU::new();
-        Self { 
-            cpu: cpu, state: state,
+        Self {
+            cpu: cpu,
+            state: state,
             cpu_cycles: 0,
-            gpu_cycles: 0, 
+            gpu_cycles: 0,
             apu_cycles: 0,
             timer_cycles: 0,
         }
@@ -32,18 +33,37 @@ impl <T: BankController>Runtime<T> {
 
     // Execute next instruction, handle interrupts and let other devices catchup.
     pub fn step(&mut self) {
-        self.cpu_cycles += self.cpu.interrupts(&mut self.state);   
+        for _ in 0..5 {
+            self.cpu_cycles += self.cpu.interrupts(&mut self.state);
+        }
         self.cpu_cycles += self.cpu.step(&mut self.state);
         self.state.joypad.step(&mut self.state.mmu);
         if self.state.dma.active() {
             self.state.dma.step(&mut self.state.mmu);
-        }   
-        self.gpu_cycles   = Runtime::catchup(&mut self.state.mmu, &mut self.state.gpu, self.cpu_cycles, self.gpu_cycles);
-        self.timer_cycles = Runtime::catchup(&mut self.state.mmu, &mut self.state.timer, self.cpu_cycles, self.timer_cycles);
-        self.apu_cycles   = Runtime::catchup(&mut self.state.mmu, &mut self.state.apu, self.cpu_cycles, self.apu_cycles);
+        }
+        self.gpu_cycles = Runtime::catchup(
+            &mut self.state.mmu,
+            &mut self.state.gpu,
+            self.cpu_cycles,
+            self.gpu_cycles,
+        );
+        self.timer_cycles = Runtime::catchup(
+            &mut self.state.mmu,
+            &mut self.state.timer,
+            self.cpu_cycles,
+            self.timer_cycles,
+        );
+        self.apu_cycles = Runtime::catchup(
+            &mut self.state.mmu,
+            &mut self.state.apu,
+            self.cpu_cycles + 1,
+            self.apu_cycles,
+        );
     }
 
-    pub fn cpu_cycles(&self) -> u64 { self.cpu_cycles }
+    pub fn cpu_cycles(&self) -> u64 {
+        self.cpu_cycles
+    }
     pub fn reset_cycles(&mut self) {
         self.cpu_cycles = 0;
         self.gpu_cycles = 0;
@@ -64,7 +84,7 @@ impl <T: BankController>Runtime<T> {
 }
 
 /*
- * State is middleware between CPU<->Memory/IO. It offers CPU safe interface for writng/reading memory which helps achieving 
+ * State is middleware between CPU<->Memory/IO. It offers CPU safe interface for writng/reading memory which helps achieving
  * certain constrains that couldn't be done inside single device.
  * For example: updatde coincidence flag when LYC changes or disallow VRAM/OAM access when GPU is rendering.
  */
@@ -77,15 +97,22 @@ pub struct State<T: BankController> {
     pub mmu: MMU<T>,
 }
 
-impl <T: BankController>State<T> {
+impl<T: BankController> State<T> {
     pub fn new(mapper: T) -> Self {
         let mut mmu = MMU::new(mapper);
         let gpu = GPU::new(&mut mmu);
         let apu = APU::new(&mut mmu);
         let timer = Timer::new();
         let dma = DMA::new();
-        let joypad = Joypad::new();     
-        Self { mmu: mmu, gpu: gpu, apu: apu, timer: timer, dma: dma, joypad: joypad }
+        let joypad = Joypad::new();
+        Self {
+            mmu: mmu,
+            gpu: gpu,
+            apu: apu,
+            timer: timer,
+            dma: dma,
+            joypad: joypad,
+        }
     }
 
     pub fn safe_write(&mut self, addr: Addr, value: Byte) {
@@ -94,20 +121,20 @@ impl <T: BankController>State<T> {
             // LYC=LY flag should be updated constantly
             LYC => self.gpu.update(&mut self.mmu),
             // Write to DIV resets it to 0
-            DIV => { 
-                self.mmu.write(addr, 0); 
+            DIV => {
+                self.mmu.write(addr, 0);
                 self.timer.reset_internal_div();
-            },
+            }
             TIMA => self.timer.reset_internal_tima(),
             // Write to DMA register starts DMA transfer
             ioregs::DMA => self.dma.start(),
-            _ => {},
+            _ => {}
         }
     }
 
     pub fn write_word(&mut self, addr: Addr, word: Word) {
         self.safe_write(addr, (word & 0xFF) as u8);
-        self.safe_write(addr+1, (word >> 8) as u8);
+        self.safe_write(addr + 1, (word >> 8) as u8);
     }
 
     pub fn safe_read(&mut self, addr: Addr) -> Byte {
@@ -115,6 +142,6 @@ impl <T: BankController>State<T> {
     }
 
     pub fn read_word(&mut self, addr: Addr) -> Word {
-        self.safe_read(addr) as u16 + ((self.safe_read(addr+1) as u16) << 8)
+        self.safe_read(addr) as u16 + ((self.safe_read(addr + 1) as u16) << 8)
     }
 }

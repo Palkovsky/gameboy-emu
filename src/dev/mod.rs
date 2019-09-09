@@ -16,8 +16,8 @@ pub use dma::*;
 pub mod joypad;
 pub use joypad::*;
 
-use super::{BankController, MMU, State};
 use super::mem::ioregs;
+use super::{BankController, State, MMU};
 
 pub trait Clocked<T: BankController> {
     /*
@@ -30,4 +30,4 @@ pub trait Clocked<T: BankController> {
      * Performs update taking expected number of clocks.
      */
     fn step(&mut self, mmu: &mut MMU<T>);
-} 
+}
