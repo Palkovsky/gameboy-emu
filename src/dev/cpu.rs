@@ -9,7 +9,7 @@ use std::num::Wrapping;
  * Handler returns number of machine cycles consumed. Hardcoding cycles wouldn't, because
  * conditional jumps/calls take varying number of cycles.
  */
-type InstructionHandler<T> = FnMut(&mut CPU, &mut State<T>, u8, u8, u8) -> u8;
+type InstructionHandler<T> = dyn FnMut(&mut CPU, &mut State<T>, u8, u8, u8) -> u8;
 
 struct Instruction<'a, T: BankController> {
     mnemo: &'a str,

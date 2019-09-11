@@ -103,7 +103,7 @@ pub struct GPU {
 
 impl<T: BankController> Clocked<T> for GPU {
     fn next_time(&self, mmu: &mut MMU<T>) -> u64 {
-        // if !GPU::LCD_DISPLAY_ENABLE(mmu) { return 0 }
+        if !GPU::LCD_DISPLAY_ENABLE(mmu) { return 1 }
         match GPU::MODE(mmu) {
             GPUMode::OAM_SEARCH => OAM_SEARCH_CYCLES,
             GPUMode::LCD_TRANSFER => LCD_TRANSFER_CYCLES,
@@ -113,6 +113,7 @@ impl<T: BankController> Clocked<T> for GPU {
     }
 
     fn step(&mut self, mmu: &mut MMU<T>) {
+        if !GPU::LCD_DISPLAY_ENABLE(mmu) { return }
         self.update(mmu);
         match GPU::MODE(mmu) {
             GPUMode::OAM_SEARCH => {
@@ -218,12 +219,11 @@ impl GPU {
         let wx = GPU::WX(mmu) as usize;
         let wy = GPU::WY(mmu) as usize;
 
-        let win_enabled = GPU::WINDOW_ENABLED(mmu)
+        let win_enabled =  GPU::WINDOW_ENABLED(mmu)
             && ly >= wy
-            && wx >= 7
-            && wx < SCREEN_WIDTH + 7
+            && wx < SCREEN_WIDTH + 10
             && wy <= SCREEN_HEIGHT;
-        let in_window = |lx: usize| win_enabled && lx >= wx - 7;
+        let in_window = |lx: usize| win_enabled && lx >= wx;
 
         let tile_addressing = GPU::TILE_ADDRESSING(mmu);
         let window_tile_map = (if GPU::WINDOW_TILE_MAP(mmu) {
@@ -247,16 +247,21 @@ impl GPU {
             }
         };
 
-        while lx < SCREEN_WIDTH {
+        loop {
             if !GPU::DISPLAY_PRIORITY(mmu) {
                 break;
             }
             let window = in_window(lx);
             self.win_rendered |= window;
 
+            // Finish scanline
+            if (window && lx >= SCREEN_WIDTH + 7) || (!window && lx >= SCREEN_WIDTH) {
+                break;
+            }
+
             // Coordinates of tile to fetch.
             let (x, y, tile_map) = if window {
-                (lx - (wx - 7), self.wy as usize, window_tile_map)
+                (lx - wx, self.wy as usize, window_tile_map)
             } else {
                 ((scx + lx) % 256, (scy + ly) % 256, bg_tile_map)
             };
@@ -291,15 +296,19 @@ impl GPU {
             let tile_col = (x - x_tile * 8) as u16;
 
             for off in tile_col..8 {
-                if lx >= SCREEN_WIDTH {
-                    break;
-                }
                 // When drawing background, but entered window area.
                 if !window && in_window(lx) {
                     break;
                 }
                 let color = bytes_to_color_num(b1, b2, off);
-                self.framebuff[ly * SCREEN_WIDTH + lx] = GPU::bg_color(mmu, color);
+                let pixel_idx = if window {
+                    ly*SCREEN_WIDTH + lx - 7
+                } else {
+                    ly*SCREEN_WIDTH + lx
+                };
+                if pixel_idx < self.framebuff.len() {
+                    self.framebuff[pixel_idx] = GPU::bg_color(mmu, color);
+                }
                 lx += 1;
             }
         }

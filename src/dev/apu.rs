@@ -251,7 +251,7 @@ impl<T: SquareWaveRegisters> SquareWaveChannel<T> {
     }
 
     fn sweep(&mut self, mmu: &mut MMU<impl BankController>) {
-        if !self.regs.ENABLED(mmu) {
+        if !self.regs.ENABLED(mmu) || self.sweep_timer == 0{
             return;
         }
         self.sweep_timer -= 1;
@@ -283,7 +283,9 @@ impl<T: SquareWaveRegisters> SquareWaveChannel<T> {
                 self.volume -= 1
             }
         }
-        self.envelope_count -= 1;
+        if self.envelope_count > 0 {
+            self.envelope_count -= 1;
+        }
     }
 }
 
@@ -512,7 +514,9 @@ impl NoiseChannel {
                 self.volume -= 1
             }
         }
-        self.envelope_count -= 1;
+        if self.envelope_count > 0 {
+            self.envelope_count -= 1;
+        }
     }
 
     fn buffer(&mut self) -> &mut Vec<i16> {

@@ -78,10 +78,6 @@ fn main() {
             runtime.step();
             let apu = &mut runtime.state.apu;
             play_samples(&q, apu);
-            //play_samples(&q1, apu.chan1_samples());
-            //play_samples(&q2, apu.chan2_samples());
-            //play_samples(&q3, apu.chan3_samples());
-            //play_samples(&q4, apu.chan4_samples());
         }
         runtime.reset_cycles();
         // Print how long internal updates took
