@@ -103,7 +103,6 @@ pub struct GPU {
 
 impl<T: BankController> Clocked<T> for GPU {
     fn next_time(&self, mmu: &mut MMU<T>) -> u64 {
-        if !GPU::LCD_DISPLAY_ENABLE(mmu) { return 1 }
         match GPU::MODE(mmu) {
             GPUMode::OAM_SEARCH => OAM_SEARCH_CYCLES,
             GPUMode::LCD_TRANSFER => LCD_TRANSFER_CYCLES,
@@ -113,7 +112,6 @@ impl<T: BankController> Clocked<T> for GPU {
     }
 
     fn step(&mut self, mmu: &mut MMU<T>) {
-        if !GPU::LCD_DISPLAY_ENABLE(mmu) { return }
         self.update(mmu);
         match GPU::MODE(mmu) {
             GPUMode::OAM_SEARCH => {
@@ -266,6 +264,7 @@ impl GPU {
                 ((scx + lx) % 256, (scy + ly) % 256, bg_tile_map)
             };
 
+            // Find tile coordinates
             let x_tile = x / 8;
             let y_tile = y / 8;
             let off = (32 * y_tile + x_tile) % 1024;
