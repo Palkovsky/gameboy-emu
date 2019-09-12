@@ -128,7 +128,9 @@ impl<T: BankController> Clocked<T> for GPU {
                 GPU::_MODE(mmu, GPUMode::LCD_TRANSFER);
             }
             GPUMode::LCD_TRANSFER => {
-                self.scanline(mmu);
+                if GPU::LCD_DISPLAY_ENABLE(mmu){
+                    self.scanline(mmu);
+                }
                 GPU::_MODE(mmu, GPUMode::HBLANK);
             }
             GPUMode::HBLANK => {
@@ -391,11 +393,15 @@ impl GPU {
 
     // Triggers VBLANK interrupt
     fn vblank_int<T: BankController>(mmu: &mut MMU<T>) {
-        mmu.set_bit(ioregs::IF, 0, true);
+        if Self::LCD_DISPLAY_ENABLE(mmu) {
+            mmu.set_bit(ioregs::IF, 0, true);
+        }
     }
     // Triggers STAT interrupt
     fn stat_int<T: BankController>(mmu: &mut MMU<T>) {
-        mmu.set_bit(ioregs::IF, 1, true);
+        if Self::LCD_DISPLAY_ENABLE(mmu) {
+            mmu.set_bit(ioregs::IF, 1, true);
+        }
     }
 
     pub fn LY<T: BankController>(mmu: &mut MMU<T>) -> u8 {

@@ -246,7 +246,10 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         /* Misc/Control instructions */
         0x00 => ("NOP",    1, Box::new(|_, _, _, _, _| 1)),
         0x10 => ("STOP 0", 2, Box::new(|cpu, _, _, _, _| { cpu.STOP = true; 1 })),
-        0x76 => ("HALT",   1, Box::new(|cpu, _, _, _, _| { cpu.HALT = true; 1 })),
+        0x76 => ("HALT",   1, Box::new(|cpu, _, _, _, _| {
+            cpu.HALT = true;
+            1
+        })),
         0xF3 => ("DI",     1, Box::new(|cpu, _, _, _, _| { cpu.IME = false; 1 })),
         0xFB => ("EI",     1, Box::new(|cpu, _, _, _, _| { cpu.IME = true; 1 })),
         // BCD adjust A
@@ -915,7 +918,7 @@ impl Default for CPU {
             N: false,
             H: true,
             C: true,
-            IME: true,
+            IME: false,
             STOP: false,
             HALT: false,
         }
@@ -946,9 +949,7 @@ impl CPU {
     // step() executes single instruction and returns number of machine cycles taken
     pub fn step(&mut self, state: &mut State<impl BankController>) -> u64 {
         // If HALT or STOP flags set, CPU executes NOPs without incrementing PC.
-        if self.HALT || self.STOP {
-            return 1;
-        }
+        if self.HALT || self.STOP { return 1; }
 
         let pc = self.PC.val();
         let op = state.safe_read(pc);
@@ -985,31 +986,26 @@ impl CPU {
          * 0 - Disable all Interrupts
          * 1 - Enable all Interrupts that are enabled in IE Register (FFFF)
          */
-        if !self.STOP && !self.HALT && !self.IME {
-            return 0;
-        }
-
         let in_e = state.safe_read(ioregs::IE);
         let in_f = state.safe_read(ioregs::IF);
-        let is_requested = |bit: usize| (in_f & (1 << bit)) & in_e != 0;
+        let stopped = self.STOP;
+        let is_requested = |bit: usize| {
+            let result = in_f & (1 << bit);
+            if stopped { result != 0 }
+            else       { (result & in_e) != 0 }
+        };
 
         for bit in 0..IVT_SIZE {
             // If it's stopped only JOYPAD interrupt can resume.
-            if self.STOP && bit != JOYPAD_INT {
-                break;
-            }
+            if self.STOP && bit != JOYPAD_INT { continue; }
             if is_requested(bit) {
-                self.HALT = false;
-                self.STOP = false;
-
-                // Call interrupt routine
                 if self.IME {
-                    state.mmu.set_bit(ioregs::IF, bit as u8, false);
                     self.call(state, IVT[bit] as u16);
+                    state.mmu.set_bit(ioregs::IF, bit as u8, false);
                     self.IME = false;
                 }
-                //println!("JUMPED TO 0x{:x} WITH INTERRUPT {}", self.PC.val(), bit);
-
+                self.STOP = false;
+                self.HALT = false;
                 // http://gbdev.gg8.se/wiki/articles/Interrupts - they say control passing to ISR should take 5 cycles
                 return 5;
             }

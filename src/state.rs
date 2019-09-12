@@ -33,9 +33,7 @@ impl<T: BankController> Runtime<T> {
 
     // Execute next instruction, handle interrupts and let other devices catchup.
     pub fn step(&mut self) {
-        for _ in 0..5 {
-            self.cpu_cycles += self.cpu.interrupts(&mut self.state);
-        }
+        self.cpu_cycles += self.cpu.interrupts(&mut self.state);
         self.cpu_cycles += self.cpu.step(&mut self.state);
         self.state.joypad.step(&mut self.state.mmu);
         if self.state.dma.active() {

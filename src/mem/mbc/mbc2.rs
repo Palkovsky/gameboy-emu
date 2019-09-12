@@ -43,14 +43,14 @@ impl BankController for MBC2 {
     fn on_status(&mut self, addr: Addr, value: Byte) {
         // 0x0000 - 0x2000 -> RAM ON/OFF
         if addr & 0x1000 == 0 && addr < 0x2000 { 
-            println!("RAM ENABLED: {} -> {}", self.ram_enabled, value & 0xF == 0xA);
+            //println!("RAM ENABLED: {} -> {}", self.ram_enabled, value & 0xF == 0xA);
             self.ram_enabled = value & 0xF == 0xA;
         }
 
         // 0x2000 - 0x4000 -> ROM Select
         if addr & 0x0100 != 0 && addr >= 0x2000 && addr < 0x4000 {
             let idx = value & 0xF;
-            println!("ROM SELECT: {} -> {}", self.idx, idx);
+            //println!("ROM SELECT: {} -> {}", self.idx, idx);
             self.idx = idx;
         }
     }
@@ -60,7 +60,7 @@ impl BankController for MBC2 {
     }
 
     fn get_switchable_rom(&mut self) -> Option<MutMem> {
-        let rom_idx = self.idx;        
+        let rom_idx = self.idx;
         let start = (rom_idx as usize) * ROM_BANK_SIZE;
         let end = start + ROM_BANK_SIZE;
         Some(&mut self.rom[start..end])

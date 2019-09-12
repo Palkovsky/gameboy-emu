@@ -62,6 +62,7 @@ impl IORegs {
         res.set(OBP_0, 0xFF);
         res.set(OBP_1, 0xFF);
         res.set(P1, 0xFF);
+        res.set(IF, 0xE0);
 
         res
     }
