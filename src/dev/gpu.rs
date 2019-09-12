@@ -115,23 +115,22 @@ impl<T: BankController> Clocked<T> for GPU {
         self.update(mmu);
         match GPU::MODE(mmu) {
             GPUMode::OAM_SEARCH => {
-                // Optional interrupts
                 if GPU::COINCIDENCE_INTERRUPT_ENABLE(mmu) && GPU::COINCIDENCE_FLAG(mmu) {
                     GPU::stat_int(mmu);
                 }
-                // Read OAM table on frame start
-                if self.ly == 0 {
-                    read_oam(mmu, &mut self.sprites);
-                }
-                // Actual OAM_SEARCH
+                // Load sprites from OAM
+                read_oam(mmu, &mut self.sprites);
                 self.oam_scanline(mmu);
                 GPU::_MODE(mmu, GPUMode::LCD_TRANSFER);
             }
             GPUMode::LCD_TRANSFER => {
-                if GPU::LCD_DISPLAY_ENABLE(mmu){
+                if GPU::LCD_DISPLAY_ENABLE(mmu) {
                     self.scanline(mmu);
                 }
                 GPU::_MODE(mmu, GPUMode::HBLANK);
+                if GPU::MODE_0_HBLANK_INTERRUPT_ENABLE(mmu) {
+                    GPU::stat_int(mmu);
+                }
             }
             GPUMode::HBLANK => {
                 self.ly += 1;
@@ -269,7 +268,7 @@ impl GPU {
             // Find tile coordinates
             let x_tile = x / 8;
             let y_tile = y / 8;
-            let off = (32 * y_tile + x_tile) % 1024;
+            let off = (32*y_tile + x_tile) % 1024;
             let tile_no = mmu.vram[tile_map + off];
 
             // By using tile number, fetch tile data from VRAM
@@ -314,9 +313,7 @@ impl GPU {
             }
         }
 
-        if !GPU::SPRITE_ENABLED(mmu) {
-            return;
-        }
+        if !GPU::SPRITE_ENABLED(mmu) { return; }
 
         // Render sprites
         let h = if GPU::SPRITE_SIZE(mmu) { 16 } else { 8 };
@@ -357,7 +354,9 @@ impl GPU {
                 if col >= 8 {
                     let pixel_idx = ly * SCREEN_WIDTH + col - 8;
                     // If priority bit set sprite will draw_sprite only over color 00.
-                    if sprite.priority && self.framebuff[pixel_idx] != WHITE {
+                    let bg_color_0_id = GPU::BG_COLOR_0_SHADE(mmu);
+                    let bg_color_0 = GPU::bg_color(mmu, bg_color_0_id);
+                    if sprite.priority && self.framebuff[pixel_idx] != bg_color_0 {
                         continue;
                     }
                     // Fetch new color based on palette

@@ -10,7 +10,6 @@ pub const CPU_CYCLES_PER_FRAME: u64 = (1 << 20) / 60;
 pub struct Runtime<T: BankController> {
     pub cpu: CPU,
     pub state: State<T>,
-
     cpu_cycles: u64,
     gpu_cycles: u64,
     apu_cycles: u64,

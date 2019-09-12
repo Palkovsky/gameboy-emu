@@ -2,7 +2,7 @@ use super::*;
 
 /*
  * MMU struct is responsible for handling address space of CPU.
- * It routes writes/reads to proper places i.e.: RAM in cart or internal VRAM.
+ 
  */
 pub struct MMU<T: BankController> {
     /* bootrap contains 256 of boot code. it gets executed first */

@@ -988,11 +988,8 @@ impl CPU {
          */
         let in_e = state.safe_read(ioregs::IE);
         let in_f = state.safe_read(ioregs::IF);
-        let stopped = self.STOP;
         let is_requested = |bit: usize| {
-            let result = in_f & (1 << bit);
-            if stopped { result != 0 }
-            else       { (result & in_e) != 0 }
+            (in_f & (1 << bit) & in_e) != 0
         };
 
         for bit in 0..IVT_SIZE {
