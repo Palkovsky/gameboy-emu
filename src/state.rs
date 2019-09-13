@@ -14,6 +14,7 @@ pub struct Runtime<T: BankController> {
     gpu_cycles: u64,
     apu_cycles: u64,
     timer_cycles: u64,
+    dma_cycles: u64,
 }
 
 impl<T: BankController> Runtime<T> {
@@ -27,6 +28,7 @@ impl<T: BankController> Runtime<T> {
             gpu_cycles: 0,
             apu_cycles: 0,
             timer_cycles: 0,
+            dma_cycles: 0,
         }
     }
 
@@ -35,9 +37,12 @@ impl<T: BankController> Runtime<T> {
         self.cpu_cycles += self.cpu.interrupts(&mut self.state);
         self.cpu_cycles += self.cpu.step(&mut self.state);
         self.state.joypad.step(&mut self.state.mmu);
-        if self.state.dma.active() {
-            self.state.dma.step(&mut self.state.mmu);
-        }
+        self.dma_cycles = Runtime::catchup(
+            &mut self.state.mmu,
+            &mut self.state.dma,
+            self.cpu_cycles,
+            self.dma_cycles,
+        );
         self.gpu_cycles = Runtime::catchup(
             &mut self.state.mmu,
             &mut self.state.gpu,
@@ -61,11 +66,13 @@ impl<T: BankController> Runtime<T> {
     pub fn cpu_cycles(&self) -> u64 {
         self.cpu_cycles
     }
+
     pub fn reset_cycles(&mut self) {
         self.cpu_cycles = 0;
         self.gpu_cycles = 0;
         self.apu_cycles = 0;
         self.timer_cycles = 0;
+        self.dma_cycles = 0;
     }
 
     fn catchup(mmu: &mut MMU<T>, dev: &mut impl Clocked<T>, cpu_clk: u64, dev_clk: u64) -> u64 {
@@ -116,14 +123,16 @@ impl<T: BankController> State<T> {
         self.mmu.write(addr, value);
         match addr {
             // LYC=LY flag should be updated constantly
-            LYC => self.gpu.update(&mut self.mmu),
+            LY | LYC => self.gpu.update(&mut self.mmu),
             // Write to DIV resets it to 0
             DIV => {
                 self.mmu.write(addr, 0);
-                self.timer.reset_internal_div();
-            }
+                //self.timer.reset_internal_div();
+            },
+            /*
             TIMA => self.timer.reset_internal_tima(),
             // Write to DMA register starts DMA transfer
+            */
             ioregs::DMA => self.dma.start(),
             _ => {}
         }

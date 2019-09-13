@@ -19,7 +19,7 @@ use sdl2::rect::Rect;
 
 const WINDOW_NAME: &str = "GAMEBOY EMU";
 const SCALE: u32 = 3;
-const FRAME_TIME: Duration = Duration::from_millis(1000 / 60);
+const FRAME_TIME: Duration = Duration::from_millis(1000 / 59);
 
 fn main() {
     if env::args().len() != 2 {

@@ -53,7 +53,7 @@ impl<T: BankController> MMU<T> {
             panic!("Attempt to write to bootstrap ROM at 0x{:X}", addr)
         }
 
-        // The thing below is quite retarded, but I was hoping for some magic optimalizations.
+        // Thing below is quite retarded, but I was hoping for some magic performacne boost.
         let chunked = (
             (addr >> 12) & 0xF,
             (addr >> 8) & 0xF,

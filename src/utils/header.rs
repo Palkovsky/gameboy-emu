@@ -57,9 +57,9 @@ impl CartHeader {
     }
 
     pub fn license(&self) -> u8 {
-        if self.license_old != 0x33 { 
-            self.license_old 
-        } else { 
+        if self.license_old != 0x33 {
+            self.license_old
+        } else {
             let string = str::from_utf8(&self.license_new).unwrap();
             u8::from_str_radix(string, 16).unwrap()
         }
@@ -99,7 +99,7 @@ impl CartHeader {
 
     pub fn ram_size(&self) -> usize {
         match self.ram_size {
-            0x00 => 0, 
+            0x00 => 0,
             0x01 => 1 << 11, // 2KB
             0x02 => 1 << 13, // 8KB
             0x03 => 1 << 15, // 32KB
@@ -124,8 +124,8 @@ impl CartHeader {
 
 impl Display for CartHeader {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f, 
-              "(Title: {}, MBC: {:?}, ROM banks: {}, RAM banks: {}, SGB support: {}, CGB: {:?}, Japanese: {})",
-              self.title(), self.cart_type(), self.rom_banks(), self.ram_banks(), self.sgb_support(), self.cgb_support(), self.is_japan())
+        write!(f,
+              "(Title: {}, MBC: {:?} - 0x{:x}, ROM banks: {}, RAM banks: {}, SGB support: {}, CGB: {:?}, Japanese: {})",
+              self.title(), self.cart_type(), self.cart_type, self.rom_banks(), self.ram_banks(), self.sgb_support(), self.cgb_support(), self.is_japan())
     }
 }

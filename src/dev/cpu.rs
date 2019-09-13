@@ -983,8 +983,8 @@ impl CPU {
     pub fn interrupts(&mut self, state: &mut State<impl BankController>) -> u64 {
         /*
          * IME - Interrupt Master Enable Flag
-         * 0 - Disable all Interrupts
-         * 1 - Enable all Interrupts that are enabled in IE Register (FFFF)
+         * 0 - Disable jumps to IVT
+         * 1 - Enable jumps to IVT
          */
         let in_e = state.safe_read(ioregs::IE);
         let in_f = state.safe_read(ioregs::IF);
@@ -994,17 +994,19 @@ impl CPU {
 
         for bit in 0..IVT_SIZE {
             // If it's stopped only JOYPAD interrupt can resume.
-            if self.STOP && bit != JOYPAD_INT { continue; }
+            // if self.STOP && bit != JOYPAD_INT { continue; }
             if is_requested(bit) {
+                let mut cycles = 0;
                 if self.IME {
                     self.call(state, IVT[bit] as u16);
                     state.mmu.set_bit(ioregs::IF, bit as u8, false);
                     self.IME = false;
+                    cycles += 5;
                 }
+                if self.HALT { cycles += 1; }
                 self.STOP = false;
                 self.HALT = false;
-                // http://gbdev.gg8.se/wiki/articles/Interrupts - they say control passing to ISR should take 5 cycles
-                return 5;
+                return cycles;
             }
         }
         0
