@@ -327,69 +327,68 @@ impl GPU {
 
         // Find sprite to draw
         let mut sprite_to_render = None;
-        for i in self.sprites_line.iter() {
+        for i in self.sprites_line.iter().rev() {
             let idx = *i;
             if idx == 0xFF {
-                break;
+                continue;
             }
 
             let tmp = self.sprites[idx];
             if tmp.x > lx && tmp.x <= lx + sprite_w {
                 sprite_to_render = Some(tmp);
-                break;
-            }
-        }
-
-        if let Some(sprite) = sprite_to_render {
-            let vram = &mmu.vram[..];
-            let mut sprite_row = (ly + 16) - sprite.y;
-            if sprite.y_flip {
-                sprite_row = sprite_h - sprite_row as u8;
             }
 
-            let base_addr = if sprite_h == 16 {
-                // 8x16 sprites
-                let tile_idx = if sprite_row >= 8 {
-                    sprite_row -= 8;
-                    sprite.tile_idx | 0x01
+            if let Some(sprite) = sprite_to_render {
+                let vram = &mmu.vram[..];
+                let mut sprite_row = (ly + 16) - sprite.y;
+                if sprite.y_flip {
+                    sprite_row = sprite_h - sprite_row as u8;
+                }
+
+                let base_addr = if sprite_h == 16 {
+                    // 8x16 sprites
+                    let tile_idx = if sprite_row >= 8 {
+                        sprite_row -= 8;
+                        sprite.tile_idx | 0x01
+                    } else {
+                        sprite.tile_idx & 0xFE
+                    };
+                    let tile_addr = TILE_BLOCK_1 + TILE_SIZE * (tile_idx as u16) - VRAM_ADDR;
+                    tile_addr as usize + 2 * sprite_row as usize
                 } else {
-                    sprite.tile_idx & 0xFE
+                    // 8x8 sprites
+                    let tile_addr = TILE_BLOCK_1 + TILE_SIZE * (sprite.tile_idx as u16) - VRAM_ADDR;
+                    tile_addr as usize + 2 * sprite_row as usize
                 };
-                let tile_addr = TILE_BLOCK_1 + TILE_SIZE * (tile_idx as u16) - VRAM_ADDR;
-                tile_addr as usize + 2 * sprite_row as usize
-            } else {
-                // 8x8 sprites
-                let tile_addr = TILE_BLOCK_1 + TILE_SIZE * (sprite.tile_idx as u16) - VRAM_ADDR;
-                tile_addr as usize + 2 * sprite_row as usize
-            };
 
-            // b1 and b2 are two bytes representing sprite tile
-            let (b1, b2) = (vram[base_addr], vram[base_addr + 1]);
+                // b1 and b2 are two bytes representing sprite tile
+                let (b1, b2) = (vram[base_addr], vram[base_addr + 1]);
 
-            // Locate specific pixel x coordinate
-            let off = (lx + sprite_w) - sprite.x;
-            let sprite_col = if sprite.x_flip { sprite_w - 1 - off } else { off };
+                // Locate specific pixel x coordinate
+                let off = (lx + sprite_w) - sprite.x;
+                let sprite_col = if sprite.x_flip { sprite_w - 1 - off } else { off };
 
-            // Lookup color
-            let color_idx = GPU::bytes_to_color_num(b1, b2, sprite_col as u16);
-            let color = if sprite.palette {
-                GPU::obp1_color(mmu, color_idx)
-            } else {
-               GPU::obp0_color(mmu, color_idx)
-            };
+                // Lookup color
+                let color_idx = GPU::bytes_to_color_num(b1, b2, sprite_col as u16);
+                let color = if sprite.palette {
+                    GPU::obp1_color(mmu, color_idx)
+                } else {
+                    GPU::obp0_color(mmu, color_idx)
+                };
 
-            let pixel_idx = ly as usize * SCREEN_WIDTH + lx as usize;
+                let pixel_idx = ly as usize * SCREEN_WIDTH + lx as usize;
 
-            // Handle sprite priority
-            let bg_color_0_id = GPU::BG_COLOR_0_SHADE(mmu);
-            let bg_color_0 = GPU::bg_color(mmu, bg_color_0_id);
-            if sprite.priority && self.framebuff[pixel_idx] != bg_color_0 {
-                return;
-            }
+                // Handle sprite priority
+                let bg_color_0_id = GPU::BG_COLOR_0_SHADE(mmu);
+                let bg_color_0 = GPU::bg_color(mmu, bg_color_0_id);
+                if sprite.priority && self.framebuff[pixel_idx] != bg_color_0 {
+                    return;
+                }
 
-            // Put it in the framebuff
-            if pixel_idx < self.framebuff.len() && color != TRANSPARENT {
-                self.framebuff[pixel_idx] = color;
+                // Put it in the framebuff
+                if pixel_idx < self.framebuff.len() && color != TRANSPARENT {
+                    self.framebuff[pixel_idx] = color;
+                }
             }
         }
     }

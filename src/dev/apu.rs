@@ -2,7 +2,7 @@
 
 use super::*;
 
-const CPU_FREQUENCY: u32 = (1 << 20);
+const CPU_FREQUENCY: u32 = 1 << 20;
 const SEQUENCER_FREQUENCY: u32 = 512;
 const SEQUENCER_UPDATE_RATE: u16 = (CPU_FREQUENCY / SEQUENCER_FREQUENCY) as u16;
 const SEQUENCER_STEP_COUNT: u16 = 8;
@@ -672,11 +672,11 @@ impl<T: BankController> Clocked<T> for APU {
                 let val = *self.chan4_samples().first().unwrap() as i64;
                 if APU::SO1(mmu, 4) {
                     lActive += 1;
-                    lSample += (val as f64 * 0.3) as i64;
+                    lSample += val;
                 }
                 if APU::SO2(mmu, 4) {
                     rActive += 1;
-                    rSample += (val as f64 * 0.3) as i64;
+                    rSample += val;
                 }
                 self.chan4_samples().clear();
             }
