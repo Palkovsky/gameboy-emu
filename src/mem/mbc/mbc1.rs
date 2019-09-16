@@ -20,7 +20,7 @@ impl MBC1 {
             rom: vec![0; ROM_BANK_SIZE*ROM_BANKS],
             ram_enabled: false,
             banking_mode: ROM_MODE,
-            idx: 1,
+            idx: 0,
         };
         if rom.len() > mbc.rom.len() { panic!("ROM too big for MBC1"); }
         for (i, byte) in rom.into_iter().enumerate() { mbc.rom[i] = byte; }
@@ -46,23 +46,25 @@ impl BankController for MBC1 {
         // 0x0000 - 0x2000 -> RAM ON/OFF
         // To enable: XXXX1010
         if addr < 0x2000 {
-            if value == 0x00 {
-                self.ram_enabled = false;
-            } else if value == 0x0A {
-                self.ram_enabled = true;
-            }
+            self.ram_enabled = value & 0xF == 0xA;
         }
         // 0x2000-0x4000 - ROM bank switch
         // Bank idx: XXXBBBBB
         if addr >= 0x2000 && addr < 0x4000 {
-            self.idx = (value & 0b00011111) | (self.idx & 0b11100000);
-            if self.idx & 0x1F == 0 { self.idx += 1; } // If 5 lower bits are zeros => change to 1
+            let mut masked = value & 0b10011111;
+            if masked == 0 { masked = 1; }
+            self.idx = (self.idx & 0b11100000) + masked;
+
+            if self.banking_mode == RAM_MODE {
+                self.idx &= 0b10011111;
+            }
         }
         // 0x4000-0x6000 - ROM/RAM bank switch
         // XXXXXXBB
         if addr >= 0x4000 && addr < 0x6000 {
-            self.idx = ((value & 0x3) << 5) | (self.idx & 0b10011111);
-            // if self.idx & 0x1F == 0 { self.idx += 1; } // If 5 lower bits are zeros => change to 1
+            println!("2bit switch: 0x{:x}", value);
+            let masked = (value & 0x3) << 5;
+            self.idx = masked | (self.idx & 0b10011111);
         }
         // 0x6000 - 0x8000 -> Banking Mode(RAM/ROM)
         // For ROM(8KB RAM, 2MB ROM): XXXXXXX1, for RAM(32KB RAM, 512KB ROM): XXXXXXX0
@@ -75,27 +77,30 @@ impl BankController for MBC1 {
 
     fn get_switchable_rom(&mut self) -> Option<MutMem> {
         let mask = if self.banking_mode == ROM_MODE {
-            0x7F
+            0b01111111
         } else {
-            0x1F
+            0b00011111
         };
-        let rom_idx = self.idx & mask;
+        let mut rom_idx = self.idx & mask;
+        if rom_idx & 0x1F == 0 {
+            rom_idx += 1;
+        }
+
         let start = (rom_idx as usize) * ROM_BANK_SIZE;
         let end = start + ROM_BANK_SIZE;
         Some(&mut self.rom[start..end])
     }
 
     fn get_switchable_ram(&mut self) -> Option<MutMem> {
-        println!("MODE: {}, ENABLED: {}", self.banking_mode, self.ram_enabled);
         if !self.ram_enabled { return None }
 
         let mask = if self.banking_mode == RAM_MODE {
             0b01100000
         } else {
             0
-        } >> 5;
+        };
 
-        let ram_idx = self.idx & mask;
+        let ram_idx = (self.idx & mask) >> 5;
         let start = (ram_idx as usize) * RAM_BANK_SIZE;
         let end = start + RAM_BANK_SIZE;
         Some(&mut self.ram[start..end])

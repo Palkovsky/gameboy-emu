@@ -233,7 +233,7 @@ impl<T: BankController> MMU<T> {
         match self.mapper.get_switchable_ram() {
             Some(arr) => return arr[offset],
             None => {
-                println!("Attempted to read unexistent memory at 0x{:x}", addr);
+                println!("RAM: Attempted to read unexistent memory at 0x{:x}", addr);
                 0xFF
             }
         }

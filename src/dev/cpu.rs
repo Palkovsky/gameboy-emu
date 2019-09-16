@@ -234,7 +234,11 @@ fn handle_cb(cpu: &mut CPU, s: &mut State<impl BankController>, op: u8) -> u8 {
 
     // Calculate number of cycles
     if op & 0xF == 0x6 || op & 0xF == 0xE {
-        4
+        // This makes instr_timing pass
+        match op >> 4 {
+            4 | 5 | 6 | 7 => 3,
+            _ => 4
+        }
     } else {
         2
     }
@@ -247,6 +251,9 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
         0x00 => ("NOP",    1, Box::new(|_, _, _, _, _| 1)),
         0x10 => ("STOP 0", 2, Box::new(|cpu, _, _, _, _| { cpu.STOP = true; 1 })),
         0x76 => ("HALT",   1, Box::new(|cpu, _, _, _, _| {
+            if !cpu.IME {
+                cpu.HALT_BUG = true;
+            }
             cpu.HALT = true;
             1
         })),
@@ -642,7 +649,7 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
             let val = safe_b_add(val, 1);
             cpu.Z = val == 0;
             cpu.reg_set(s, idx, val);
-            if idx == ADDR_HL_IDX { 2 } else { 1 }
+            if idx == ADDR_HL_IDX { 3 } else { 1 }
         })),
         // Decrements register
         0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => ("DEC reg", 1, Box::new(|cpu, s, op, _, _| {
@@ -654,7 +661,7 @@ fn decode<T: BankController>(op: u8) -> Option<Instruction<'static, T>> {
             let val = safe_b_sub(val, 1);
             cpu.reg_set(s, idx, val);
             cpu.Z = val == 0;
-            if idx == ADDR_HL_IDX { 2 } else { 1 }
+            if idx == ADDR_HL_IDX { 3 } else { 1 }
         })),
 
         /* 16 bit ALU */
@@ -903,6 +910,7 @@ pub struct CPU {
     pub IME: bool,
     pub STOP: bool,
     pub HALT: bool,
+    HALT_BUG: bool,
 }
 impl Default for CPU {
     // Default F = 0xB0 = 0b10110000 = ZHC
@@ -921,6 +929,7 @@ impl Default for CPU {
             IME: false,
             STOP: false,
             HALT: false,
+            HALT_BUG: false,
         }
     }
 }
@@ -972,7 +981,10 @@ impl CPU {
             0
         };
 
-        self.PC.set(safe_w_add(self.PC.val(), size as u16));
+        if !self.HALT_BUG {
+            self.PC.set(safe_w_add(self.PC.val(), size as u16));
+        }
+        self.HALT_BUG = false;
         f(self, state, op, op1, op2) as u64
     }
 
@@ -992,10 +1004,16 @@ impl CPU {
             (in_f & (1 << bit) & in_e) != 0
         };
 
+        if !self.IME && self.HALT {
+            self.HALT = false;
+            return 1;
+        }
+
         for bit in 0..IVT_SIZE {
             // If it's stopped only JOYPAD interrupt can resume.
             // if self.STOP && bit != JOYPAD_INT { continue; }
             if is_requested(bit) {
+                // println!("INT {}, IME: {}, H: {}", bit, self.IME, self.HALT);
                 let mut cycles = 0;
                 if self.IME {
                     self.call(state, IVT[bit] as u16);

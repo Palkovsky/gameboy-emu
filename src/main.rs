@@ -19,7 +19,7 @@ use sdl2::rect::Rect;
 
 const WINDOW_NAME: &str = "GAMEBOY EMU";
 const SCALE: u32 = 3;
-const FRAME_TIME: Duration = Duration::from_millis(1000 / 59);
+const FRAME_TIME: Duration = Duration::from_millis(1000 / 60);
 
 fn main() {
     if env::args().len() != 2 {
@@ -29,12 +29,12 @@ fn main() {
     let mut file = fs::File::open(path).unwrap();
     let mut rom = Vec::new();
     file.read_to_end(&mut rom).unwrap();
-
+/*
     let header = CartHeader::new(rom.iter().take(0x150).skip(0x100).map(|x| *x).collect());
     println!("{}", header);
-
+*/
     // Mapper type shouldn't be hardcoded here
-    let mut runtime = Runtime::new(mbc::MBC1::new(rom));
+    let mut runtime = Runtime::new(mbc::MBC3::new(rom));
     runtime.state.mmu.disable_bootrom();
     runtime.cpu.PC.set(0x100);
 
@@ -77,11 +77,15 @@ fn main() {
         while runtime.cpu_cycles() < CPU_CYCLES_PER_FRAME {
             runtime.step();
             let apu = &mut runtime.state.apu;
-            play_samples(&q, apu);
+             play_stereo_samples(&q, apu);
+
         }
         runtime.reset_cycles();
         // Print how long internal updates took
         println!("Internal: {}ms", now.elapsed().as_millis());
+        println!("NR 50: 0b{:8b}", runtime.state.safe_read(NR_50));
+        println!("NR 51: 0b{:8b}", runtime.state.safe_read(NR_51));
+        println!("NR 52: 0b{:8b}", runtime.state.safe_read(NR_52));
 
         // Measure how long SDL part takes
         let now = Instant::now();
@@ -151,7 +155,7 @@ fn main() {
     }
 }
 
-fn play_samples(queue: &AudioQueue<i16>, apu: &mut APU) {
+fn play_stereo_samples(queue: &AudioQueue<i16>, apu: &mut APU) {
     let left = apu.left_samples().clone();
     if left.len() < apu::BUFF_SIZE {
         return;

@@ -56,6 +56,22 @@ impl IORegs {
         };
 
         // Set default non-zero values
+        /*
+        res.set(NR_10, 0x80);
+        res.set(NR_11, 0xBF);
+        res.set(NR_12, 0xF3);
+        res.set(NR_14, 0xBF);
+        res.set(NR_21, 0x3F);
+        res.set(NR_24, 0xBF);
+        res.set(NR_30, 0x7F);
+        res.set(NR_31, 0xFF);
+        res.set(NR_32, 0x9F);
+        res.set(NR_33, 0xBF);
+        res.set(NR_41, 0xFF);
+        res.set(NR_44, 0xBF);
+        res.set(NR_50, 0x77);
+        res.set(NR_51, 0xF3);
+        */
 
         res.set(LCDC, 0x91);
         res.set(BGP, 0xFC);

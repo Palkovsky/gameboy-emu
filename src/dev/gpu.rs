@@ -31,9 +31,9 @@ pub const SPRITE_COUNT: usize = 40;
 pub const SCANLINE_SPRITE_COUNT: usize = 10;
 
 pub type Color = (u8, u8, u8);
-pub const WHITE: Color = (151, 134, 163);
-pub const LIGHT_GRAY: Color = (255, 210, 0);
-pub const DARK_GRAY: Color = (243, 0, 0);
+pub const WHITE: Color = (255, 255, 255);
+pub const LIGHT_GRAY: Color = (184, 184, 184);
+pub const DARK_GRAY: Color = (115, 115, 155);
 pub const BLACK: Color = (0, 0, 0);
 pub const TRANSPARENT: Color = (0, 255, 0);
 
@@ -147,9 +147,9 @@ impl<T: BankController> Clocked<T> for GPU {
                     }
                 } else {
                     GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
-                    if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) {
-                        GPU::stat_int(mmu);
-                    }
+                }
+                if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) {
+                    GPU::stat_int(mmu);
                 }
             }
             GPUMode::VBLANK => {
@@ -165,6 +165,9 @@ impl<T: BankController> Clocked<T> for GPU {
                     if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) {
                         GPU::stat_int(mmu);
                     }
+                }
+                if GPU::COINCIDENCE_INTERRUPT_ENABLE(mmu) && GPU::COINCIDENCE_FLAG(mmu) {
+                    GPU::stat_int(mmu);
                 }
             }
         };

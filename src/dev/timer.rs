@@ -78,8 +78,8 @@ impl<T: BankController> Clocked<T> for Timer {
 impl Timer {
     pub fn new() -> Self {
         Self {
-            div_cycle: 1,
-            tima_cycle: 1,
+            div_cycle: 0,
+            tima_cycle: 0
         }
     }
 
@@ -87,23 +87,12 @@ impl Timer {
         mmu.set_bit(ioregs::IF, 2, true);
     }
 
-    /* Called when something from outside writes to DIV. */
-    pub fn reset_internal_div(&mut self) {
-        self.div_cycle = 1;
-    }
-    /* Called when something from outside writes to DIV. */
-    pub fn reset_internal_tima(&mut self) {
-        self.tima_cycle = 1;
-    }
-
     pub fn div<T: BankController>(&mut self, mmu: &mut MMU<T>, _: u8) {
         mmu.write(ioregs::DIV, 0);
-        self.reset_internal_div();
     }
 
     pub fn tima<T: BankController>(&mut self, mmu: &mut MMU<T>, val: u8) {
         mmu.write(ioregs::TIMA, val);
-        self.reset_internal_tima();
     }
 
     pub fn DIV<T: BankController>(mmu: &mut MMU<T>) -> u8 {

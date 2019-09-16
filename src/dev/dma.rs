@@ -12,7 +12,7 @@ pub struct DMA {
 impl<T: BankController> Clocked<T> for DMA {
     fn next_time(&self, _: &mut MMU<T>) -> u64 {
         if self.active {
-            160
+            162
         } else {
             1
         }
@@ -31,7 +31,7 @@ impl<T: BankController> Clocked<T> for DMA {
         for i in 0..TRANSFER_SIZE {
             dest[i] = self.buff[i];
         }
-        //println!("DMA finished.");
+        println!("DMA finished!!!!!!!!!!");
         self.active = false;
     }
 }

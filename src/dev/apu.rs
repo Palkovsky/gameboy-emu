@@ -240,13 +240,9 @@ impl<T: SquareWaveRegisters> SquareWaveChannel<T> {
         if !self.regs.ENABLED(mmu) || self.length == 0 {
             return;
         }
-        if self.length > 0 {
-            self.length -= 1;
-        }
-        if self.length == 0 {
-            if self.regs.COUNTER_CONSECUTIVE_SELECT(mmu) {
-                self.regs._ENABLED(mmu, false);
-            }
+        self.length -= 1;
+        if self.length == 0 && self.regs.COUNTER_CONSECUTIVE_SELECT(mmu) {
+            self.regs._ENABLED(mmu, false);
         }
     }
 
@@ -488,16 +484,12 @@ impl NoiseChannel {
     }
 
     fn length(&mut self, mmu: &mut MMU<impl BankController>) {
-        if !Self::ENABLED(mmu) || self.length == 0 {
+        if !Self::ENABLED(mmu) || self.volume == 0 {
             return;
         }
-        if self.length > 0 {
-            self.length -= 1;
-        }
-        if self.length == 0 {
-            if Self::COUNTER_CONSECUTIVE_SELECT(mmu) {
-                Self::_ENABLED(mmu, false);
-            }
+        self.length -= 1;
+        if self.length == 0 && Self::COUNTER_CONSECUTIVE_SELECT(mmu) {
+            Self::_ENABLED(mmu, false);
         }
     }
 
@@ -680,11 +672,11 @@ impl<T: BankController> Clocked<T> for APU {
                 let val = *self.chan4_samples().first().unwrap() as i64;
                 if APU::SO1(mmu, 4) {
                     lActive += 1;
-                    lSample += val;
+                    lSample += (val as f64 * 0.3) as i64;
                 }
                 if APU::SO2(mmu, 4) {
                     rActive += 1;
-                    rSample += val;
+                    rSample += (val as f64 * 0.3) as i64;
                 }
                 self.chan4_samples().clear();
             }
