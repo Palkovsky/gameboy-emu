@@ -12,7 +12,7 @@ pub struct DMA {
 impl<T: BankController> Clocked<T> for DMA {
     fn next_time(&self, _: &mut MMU<T>) -> u64 {
         if self.active {
-            162
+            160
         } else {
             1
         }
@@ -23,7 +23,6 @@ impl<T: BankController> Clocked<T> for DMA {
             return;
         }
         let addr = DMA::FROM(mmu);
-        //println!("Started DMA transfer from 0x{:x} to OAM.", addr);
         for i in 0..TRANSFER_SIZE {
             self.buff[i] = mmu.read(addr + i as u16);
         }
@@ -31,7 +30,6 @@ impl<T: BankController> Clocked<T> for DMA {
         for i in 0..TRANSFER_SIZE {
             dest[i] = self.buff[i];
         }
-        println!("DMA finished!!!!!!!!!!");
         self.active = false;
     }
 }

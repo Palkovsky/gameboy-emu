@@ -34,7 +34,7 @@ fn main() {
     println!("{}", header);
 */
     // Mapper type shouldn't be hardcoded here
-    let mut runtime = Runtime::new(mbc::MBC3::new(rom));
+    let mut runtime = Runtime::new(mbc::MBC1::new(rom));
     runtime.state.mmu.disable_bootrom();
     runtime.cpu.PC.set(0x100);
 
@@ -82,10 +82,10 @@ fn main() {
         }
         runtime.reset_cycles();
         // Print how long internal updates took
-        println!("Internal: {}ms", now.elapsed().as_millis());
-        println!("NR 50: 0b{:8b}", runtime.state.safe_read(NR_50));
-        println!("NR 51: 0b{:8b}", runtime.state.safe_read(NR_51));
-        println!("NR 52: 0b{:8b}", runtime.state.safe_read(NR_52));
+        // println!("Internal: {}ms", now.elapsed().as_millis());
+        // println!("NR 50: 0b{:8b}", runtime.state.safe_read(NR_50));
+        // println!("NR 51: 0b{:8b}", runtime.state.safe_read(NR_51));
+        // println!("NR 52: 0b{:8b}", runtime.state.safe_read(NR_52));
 
         // Measure how long SDL part takes
         let now = Instant::now();
@@ -175,8 +175,6 @@ fn play_stereo_samples(queue: &AudioQueue<i16>, apu: &mut APU) {
     }
     queue.queue(&mixed);
     queue.resume();
-    for i in (0..apu::BUFF_SIZE).rev() {
-        apu.left_samples().remove(i);
-        apu.right_samples().remove(i);
-    }
+    apu.left_samples().clear();
+    apu.right_samples().clear();
 }

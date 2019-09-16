@@ -91,7 +91,8 @@ impl Default for GPUMode {
 }
 
 pub struct GPU {
-    pub ly: u8,
+    ly: u8,
+    lx: u8,
     /* Keeps track of number of window lines rendered */
     wy: u8,
     /* Indicates wheater the window was drawn on current scanline */
@@ -105,69 +106,63 @@ impl<T: BankController> Clocked<T> for GPU {
     fn next_time(&self, mmu: &mut MMU<T>) -> u64 {
         match GPU::MODE(mmu) {
             GPUMode::OAM_SEARCH => OAM_SEARCH_CYCLES,
-            GPUMode::LCD_TRANSFER => LCD_TRANSFER_CYCLES,
+            GPUMode::LCD_TRANSFER => 1,
             GPUMode::HBLANK => HBLANK_CYCLES,
             GPUMode::VBLANK => SCANLINE_CYCLES,
         }
     }
 
     fn step(&mut self, mmu: &mut MMU<T>) {
-        self.update(mmu);
+        self.update_ly(mmu);
         match GPU::MODE(mmu) {
             GPUMode::OAM_SEARCH => {
-                if GPU::COINCIDENCE_INTERRUPT_ENABLE(mmu) && GPU::COINCIDENCE_FLAG(mmu) {
-                    GPU::stat_int(mmu);
-                }
-                // Load sprites from OAM
                 read_oam(mmu, &mut self.sprites);
                 self.oam_scanline(mmu);
                 GPU::_MODE(mmu, GPUMode::LCD_TRANSFER);
             }
             GPUMode::LCD_TRANSFER => {
-                if GPU::LCD_DISPLAY_ENABLE(mmu) {
-                    self.scanline(mmu);
+                for _ in 0..4 {
+                    if GPU::LCD_DISPLAY_ENABLE(mmu) {
+                        self.draw_dot(mmu);
+                    }
+                    self.lx += 1;
                 }
-                GPU::_MODE(mmu, GPUMode::HBLANK);
-                if GPU::MODE_0_HBLANK_INTERRUPT_ENABLE(mmu) {
-                    GPU::stat_int(mmu);
+                if self.lx == SCREEN_WIDTH as u8 {
+                    GPU::_MODE(mmu, GPUMode::HBLANK);
+                    GPU::hblank_stat_int(mmu);
                 }
             }
             GPUMode::HBLANK => {
+                self.lx = 0;
                 self.ly += 1;
                 if self.win_rendered {
                     self.win_rendered = false;
                     self.wy += 1;
                 }
-                self.update(mmu);
+                self.update_ly(mmu);
+                GPU::lyc_stat_int(mmu);
                 if self.ly == SCREEN_HEIGHT as u8 {
                     GPU::_MODE(mmu, GPUMode::VBLANK);
                     GPU::vblank_int(mmu);
-                    if GPU::MODE_1_VBLANK_INTERRUPT_ENABLE(mmu) {
-                        GPU::stat_int(mmu);
-                    }
+                    GPU::vblank_stat_int(mmu);
                 } else {
                     GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
-                }
-                if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) {
-                    GPU::stat_int(mmu);
+                    GPU::oam_stat_int(mmu);
                 }
             }
             GPUMode::VBLANK => {
+                self.lx = 0;
                 self.ly = if self.ly as usize == SCREEN_HEIGHT + VBLANK_HEIGHT {
                     0
                 } else {
                     self.ly + 1
                 };
-                self.update(mmu);
+                self.update_ly(mmu);
+                GPU::lyc_stat_int(mmu);
                 if self.ly == 0 {
                     self.wy = 0;
                     GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
-                    if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) {
-                        GPU::stat_int(mmu);
-                    }
-                }
-                if GPU::COINCIDENCE_INTERRUPT_ENABLE(mmu) && GPU::COINCIDENCE_FLAG(mmu) {
-                    GPU::stat_int(mmu);
+                    GPU::oam_stat_int(mmu);
                 }
             }
         };
@@ -177,6 +172,7 @@ impl<T: BankController> Clocked<T> for GPU {
 impl GPU {
     pub fn new(mmu: &mut MMU<impl BankController>) -> Self {
         let mut res = Self {
+            lx: 0,
             ly: 0,
             wy: 0,
             win_rendered: false,
@@ -186,7 +182,7 @@ impl GPU {
         };
         GPU::_LCD_DISPLAY_ENABLE(mmu, true);
         GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
-        res.update(mmu);
+        res.update_ly(mmu);
         res
     }
 
@@ -212,195 +208,243 @@ impl GPU {
         }
     }
 
-    // Draws LY scanline.
-    fn scanline(&mut self, mmu: &mut MMU<impl BankController>) {
-        let mut lx = 0usize;
+    fn draw_window(&mut self, mmu: &mut MMU<impl BankController>) {
+        let lx = self.lx as usize + 7;
         let ly = self.ly as usize;
-        let scx = GPU::SCX(mmu) as usize;
-        let scy = GPU::SCY(mmu) as usize;
         let wx = GPU::WX(mmu) as usize;
         let wy = GPU::WY(mmu) as usize;
 
-        let win_enabled =  GPU::WINDOW_ENABLED(mmu)
-            && ly >= wy
-            && wx < SCREEN_WIDTH + 10
-            && wy <= SCREEN_HEIGHT;
-        let in_window = |lx: usize| win_enabled && lx >= wx;
+        let in_window = ly >= wy && lx >= wx;
+        if !in_window {
+            return;
+        }
+        self.win_rendered = true;
 
         let tile_addressing = GPU::TILE_ADDRESSING(mmu);
-        let window_tile_map = (if GPU::WINDOW_TILE_MAP(mmu) {
-            TILE_MAP_2
-        } else {
-            TILE_MAP_1
-        } - VRAM_ADDR) as usize;
-        let bg_tile_map = (if GPU::BG_TILE_MAP(mmu) {
+        let tile_map = (if GPU::WINDOW_TILE_MAP(mmu) {
             TILE_MAP_2
         } else {
             TILE_MAP_1
         } - VRAM_ADDR) as usize;
 
-        let bytes_to_color_num = |b1: u8, b2: u8, off: u16| {
-            let mask = 0x80 >> off;
-            match (b2 & mask != 0, b1 & mask != 0) {
-                (true, true) => 3,
-                (true, false) => 2,
-                (false, true) => 1,
-                (false, false) => 0,
+        let (x, y) = (lx - wx, self.wy as usize);
+
+        // Find tile coordinates
+        let x_tile = x / 8;
+        let y_tile = y / 8;
+        let off = (32*y_tile + x_tile) % 1024;
+        let tile_no = mmu.vram[tile_map + off];
+
+        // By using tile number, fetch tile data from VRAM
+        let tile_addr = match (tile_addressing, tile_no) {
+            // 8000-8FFF unsigned addressing
+            (true, tile) => TILE_BLOCK_1 + TILE_SIZE * (tile as u16),
+            // 8800 signed addressing
+            (false, tile) if (tile as i8) >= 0 => TILE_BLOCK_2 + TILE_SIZE * (tile as u16),
+            (false, tile) if (tile as i8) < 0 => {
+                TILE_BLOCK_2 - TILE_SIZE * ((-((tile as i8) as i16)) as u16)
             }
-        };
+            // Won't happen
+            (a, b) => panic!("Invalid tile addressing pattern: ({}, {})", a, b),
+        } - VRAM_ADDR as u16;
 
-        loop {
-            if !GPU::DISPLAY_PRIORITY(mmu) {
-                break;
-            }
-            let window = in_window(lx);
-            self.win_rendered |= window;
+        let start = tile_addr as usize;
+        let end = start + TILE_SIZE as usize;
+        let tile = &mmu.vram[start..end];
 
-            // Finish scanline
-            if (window && lx >= SCREEN_WIDTH + 7) || (!window && lx >= SCREEN_WIDTH) {
-                break;
-            }
+        // Which row we want to render?
+        let tile_row = (y - y_tile * 8) as usize;
+        let (b1, b2) = (tile[2 * tile_row], tile[2 * tile_row + 1]);
 
-            // Coordinates of tile to fetch.
-            let (x, y, tile_map) = if window {
-                (lx - wx, self.wy as usize, window_tile_map)
-            } else {
-                ((scx + lx) % 256, (scy + ly) % 256, bg_tile_map)
-            };
+        // Which col we want to render?
+        let tile_col = (x - x_tile * 8) as u16;
+        let color = GPU::bytes_to_color_num(b1, b2, tile_col);
+        let pixel_idx = ly*SCREEN_WIDTH + lx - 7;
 
-            // Find tile coordinates
-            let x_tile = x / 8;
-            let y_tile = y / 8;
-            let off = (32*y_tile + x_tile) % 1024;
-            let tile_no = mmu.vram[tile_map + off];
-
-            // By using tile number, fetch tile data from VRAM
-            let tile_addr = match (tile_addressing, tile_no) {
-                // 8000-8FFF unsigned addressing
-                (true, tile) => TILE_BLOCK_1 + TILE_SIZE * (tile as u16),
-                // 8800 signed addressing
-                (false, tile) if (tile as i8) >= 0 => TILE_BLOCK_2 + TILE_SIZE * (tile as u16),
-                (false, tile) if (tile as i8) < 0 => {
-                    TILE_BLOCK_2 - TILE_SIZE * ((-((tile as i8) as i16)) as u16)
-                }
-                // Won't happen
-                (a, b) => panic!("Invalid tile addressing pattern: ({}, {})", a, b),
-            } - VRAM_ADDR as u16;
-
-            let start = tile_addr as usize;
-            let end = start + TILE_SIZE as usize;
-            let tile = &mmu.vram[start..end];
-
-            // Which row we want to render?
-            let tile_row = (y - y_tile * 8) as usize;
-            let (b1, b2) = (tile[2 * tile_row], tile[2 * tile_row + 1]);
-
-            // Which col we want to render?
-            let tile_col = (x - x_tile * 8) as u16;
-
-            for off in tile_col..8 {
-                // When drawing background, but entered window area.
-                if !window && in_window(lx) {
-                    break;
-                }
-                let color = bytes_to_color_num(b1, b2, off);
-                let pixel_idx = if window {
-                    ly*SCREEN_WIDTH + lx - 7
-                } else {
-                    ly*SCREEN_WIDTH + lx
-                };
-                if pixel_idx < self.framebuff.len() {
-                    self.framebuff[pixel_idx] = GPU::bg_color(mmu, color);
-                }
-                lx += 1;
-            }
+        if pixel_idx < self.framebuff.len() {
+            self.framebuff[pixel_idx] = GPU::bg_color(mmu, color);
         }
+    }
 
-        if !GPU::SPRITE_ENABLED(mmu) { return; }
+    fn draw_background(&mut self, mmu: &mut MMU<impl BankController>) {
+        let lx = self.lx as usize;
+        let ly = self.ly as usize;
+        let scx = GPU::SCX(mmu) as usize;
+        let scy = GPU::SCY(mmu) as usize;
 
-        // Render sprites
-        let h = if GPU::SPRITE_SIZE(mmu) { 16 } else { 8 };
+        let tile_addressing = GPU::TILE_ADDRESSING(mmu);
+        let tile_map = (if GPU::BG_TILE_MAP(mmu) {
+            TILE_MAP_2
+        } else {
+            TILE_MAP_1
+        } - VRAM_ADDR) as usize;
+
+        // Coordinates of tile to fetch.
+        let (x, y) = ((scx + lx) % 256, (scy + ly) % 256);
+
+        // Find tile coordinates
+        let x_tile = x / 8;
+        let y_tile = y / 8;
+        let off = (32*y_tile + x_tile) % 1024;
+        let tile_no = mmu.vram[tile_map + off];
+
+        // By using tile number, fetch tile data from VRAM
+        let tile_addr = match (tile_addressing, tile_no) {
+            // 8000-8FFF unsigned addressing
+            (true, tile) => TILE_BLOCK_1 + TILE_SIZE * (tile as u16),
+            // 8800 signed addressing
+            (false, tile) if (tile as i8) >= 0 => TILE_BLOCK_2 + TILE_SIZE * (tile as u16),
+            (false, tile) if (tile as i8) < 0 => {
+                TILE_BLOCK_2 - TILE_SIZE * ((-((tile as i8) as i16)) as u16)
+            }
+            // Won't happen
+            (a, b) => panic!("Invalid tile addressing pattern: ({}, {})", a, b),
+        } - VRAM_ADDR as u16;
+
+        let start = tile_addr as usize;
+        let end = start + TILE_SIZE as usize;
+        let tile = &mmu.vram[start..end];
+
+        // Which row we want to render?
+        let tile_row = (y - y_tile * 8) as usize;
+        let (b1, b2) = (tile[2 * tile_row], tile[2 * tile_row + 1]);
+
+        // Which col we want to render?
+        let tile_col = (x - x_tile * 8) as u16;
+        let color = GPU::bytes_to_color_num(b1, b2, tile_col);
+        let pixel_idx = ly*SCREEN_WIDTH + lx;
+
+        if pixel_idx < self.framebuff.len() {
+            self.framebuff[pixel_idx] = GPU::bg_color(mmu, color);
+        }
+    }
+
+    fn draw_sprite(&mut self, mmu: &mut MMU<impl BankController>){
+        let sprite_h = if GPU::SPRITE_SIZE(mmu) { 16 } else { 8 };
+        let sprite_w = 8;
+        let lx = self.lx;
+        let ly = self.ly;
+
+        // Find sprite to draw
+        let mut sprite_to_render = None;
         for i in self.sprites_line.iter() {
             let idx = *i;
             if idx == 0xFF {
                 break;
             }
 
+            let tmp = self.sprites[idx];
+            if tmp.x > lx && tmp.x <= lx + sprite_w {
+                sprite_to_render = Some(tmp);
+                break;
+            }
+        }
+
+        if let Some(sprite) = sprite_to_render {
             let vram = &mmu.vram[..];
-            let sprite = self.sprites[idx];
-            let mut col = sprite.x as usize;
-            let mut row = (ly + 16) - sprite.y as usize;
+            let mut sprite_row = (ly + 16) - sprite.y;
             if sprite.y_flip {
-                row = h - row;
+                sprite_row = sprite_h - sprite_row as u8;
             }
 
-            let base = if h == 16 {
+            let base_addr = if sprite_h == 16 {
                 // 8x16 sprites
-                let tile_idx = if row >= 8 {
-                    row -= 8;
+                let tile_idx = if sprite_row >= 8 {
+                    sprite_row -= 8;
                     sprite.tile_idx | 0x01
                 } else {
                     sprite.tile_idx & 0xFE
                 };
                 let tile_addr = TILE_BLOCK_1 + TILE_SIZE * (tile_idx as u16) - VRAM_ADDR;
-                tile_addr as usize + 2 * row
+                tile_addr as usize + 2 * sprite_row as usize
             } else {
                 // 8x8 sprites
                 let tile_addr = TILE_BLOCK_1 + TILE_SIZE * (sprite.tile_idx as u16) - VRAM_ADDR;
-                tile_addr as usize + 2 * row
+                tile_addr as usize + 2 * sprite_row as usize
             };
-            let (b1, b2) = (vram[base], vram[base + 1]);
 
-            let mut off = if sprite.x_flip { 7 } else { 0 };
-            for _ in 0..8 {
-                let color = bytes_to_color_num(b1, b2, off);
-                if col >= 8 {
-                    let pixel_idx = ly * SCREEN_WIDTH + col - 8;
-                    // If priority bit set sprite will draw_sprite only over color 00.
-                    let bg_color_0_id = GPU::BG_COLOR_0_SHADE(mmu);
-                    let bg_color_0 = GPU::bg_color(mmu, bg_color_0_id);
-                    if sprite.priority && self.framebuff[pixel_idx] != bg_color_0 {
-                        continue;
-                    }
-                    // Fetch new color based on palette
-                    let color = if sprite.palette {
-                        GPU::obp1_color(mmu, color)
-                    } else {
-                        GPU::obp0_color(mmu, color)
-                    };
-                    // Put it in the framebuff
-                    if pixel_idx < self.framebuff.len() && color != TRANSPARENT {
-                        self.framebuff[pixel_idx] = color;
-                    }
-                }
-                col += 1;
-                off = if sprite.x_flip {
-                    if off == 0 {
-                        break;
-                    }
-                    off - 1
-                } else {
-                    off + 1
-                };
+            // b1 and b2 are two bytes representing sprite tile
+            let (b1, b2) = (vram[base_addr], vram[base_addr + 1]);
+
+            // Locate specific pixel x coordinate
+            let off = (lx + sprite_w) - sprite.x;
+            let sprite_col = if sprite.x_flip { sprite_w - 1 - off } else { off };
+
+            // Lookup color
+            let color_idx = GPU::bytes_to_color_num(b1, b2, sprite_col as u16);
+            let color = if sprite.palette {
+                GPU::obp1_color(mmu, color_idx)
+            } else {
+               GPU::obp0_color(mmu, color_idx)
+            };
+
+            let pixel_idx = ly as usize * SCREEN_WIDTH + lx as usize;
+
+            // Handle sprite priority
+            let bg_color_0_id = GPU::BG_COLOR_0_SHADE(mmu);
+            let bg_color_0 = GPU::bg_color(mmu, bg_color_0_id);
+            if sprite.priority && self.framebuff[pixel_idx] != bg_color_0 {
+                return;
+            }
+
+            // Put it in the framebuff
+            if pixel_idx < self.framebuff.len() && color != TRANSPARENT {
+                self.framebuff[pixel_idx] = color;
             }
         }
     }
 
-    // update() performs LY=LYC check, updates COINCIDENCE FLAG and (optionally) triggers STAT interrupt.
-    pub fn update<T: BankController>(&mut self, mmu: &mut MMU<T>) {
+    fn draw_dot(&mut self, mmu: &mut MMU<impl BankController>){
+        if GPU::DISPLAY_PRIORITY(mmu) {
+            self.draw_background(mmu);
+            if GPU::WINDOW_ENABLED(mmu) {
+                self.draw_window(mmu);
+            }
+        }
+        if GPU::SPRITE_ENABLED(mmu) {
+            self.draw_sprite(mmu);
+        }
+    }
+
+    // update_ly() performs LY=LYC check, updates COINCIDENCE FLAG and (optionally) triggers STAT interrupt.
+    pub fn update_ly(&mut self, mmu: &mut MMU<impl BankController>) {
         let lyc = GPU::LYC(mmu);
         GPU::_LY(mmu, self.ly);
         GPU::_COINCIDENCE_FLAG(mmu, self.ly == lyc);
     }
 
+    fn vblank_stat_int(mmu: &mut MMU<impl BankController>) {
+        if GPU::MODE_1_VBLANK_INTERRUPT_ENABLE(mmu) {
+            GPU::stat_int(mmu);
+        }
+    }
+
+    fn hblank_stat_int(mmu: &mut MMU<impl BankController>) {
+        if GPU::MODE_0_HBLANK_INTERRUPT_ENABLE(mmu) {
+            GPU::stat_int(mmu);
+        }
+    }
+
+    fn oam_stat_int(mmu: &mut MMU<impl BankController>) {
+        if GPU::MODE_2_OAM_INTERRUPT_ENABLE(mmu) {
+            GPU::stat_int(mmu);
+        }
+    }
+
+    fn lyc_stat_int(mmu: &mut MMU<impl BankController>) {
+        if GPU::COINCIDENCE_INTERRUPT_ENABLE(mmu) && GPU::COINCIDENCE_FLAG(mmu){
+            GPU::stat_int(mmu);
+        }
+    }
+
     // Triggers VBLANK interrupt
-    fn vblank_int<T: BankController>(mmu: &mut MMU<T>) {
+    fn vblank_int(mmu: &mut MMU<impl BankController>) {
         if Self::LCD_DISPLAY_ENABLE(mmu) {
             mmu.set_bit(ioregs::IF, 0, true);
         }
     }
     // Triggers STAT interrupt
-    fn stat_int<T: BankController>(mmu: &mut MMU<T>) {
+    fn stat_int(mmu: &mut MMU<impl BankController>) {
         if Self::LCD_DISPLAY_ENABLE(mmu) {
             mmu.set_bit(ioregs::IF, 1, true);
         }
@@ -658,5 +702,15 @@ impl GPU {
             3 => GPU::OBP1_COLOR_3_SHADE(mmu),
             _ => 0x40,
         })
+    }
+
+    fn bytes_to_color_num(b1: u8, b2: u8, off: u16) -> u8 {
+        let mask = 0x80 >> off;
+        match (b2 & mask != 0, b1 & mask != 0) {
+            (true, true) => 3,
+            (true, false) => 2,
+            (false, true) => 1,
+            (false, false) => 0,
+        }
     }
 }

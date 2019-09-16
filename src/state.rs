@@ -37,9 +37,6 @@ impl<T: BankController> Runtime<T> {
         self.cpu_cycles += self.cpu.interrupts(&mut self.state);
         self.cpu_cycles += self.cpu.step(&mut self.state);
         self.state.joypad.step(&mut self.state.mmu);
-        if self.state.dma.active() {
-            self.state.dma.step(&mut self.state.mmu);
-        }
         self.dma_cycles = Runtime::catchup(
             &mut self.state.mmu,
             &mut self.state.dma,
@@ -64,7 +61,6 @@ impl<T: BankController> Runtime<T> {
             self.cpu_cycles + 1,
             self.apu_cycles,
         );
-        //println!("PC: 0x{:x}", self.cpu.PC.val());
     }
 
     pub fn cpu_cycles(&self) -> u64 {
@@ -124,16 +120,11 @@ impl<T: BankController> State<T> {
     }
 
     pub fn safe_write(&mut self, addr: Addr, value: Byte) {
-        if addr >= VRAM_ADDR && addr < VRAM_ADDR + VRAM_SIZE as u16 {
-            let mode = GPU::MODE(&mut self.mmu);
-            //println!("WRITE TO 0x{:x} AT {:?}", addr, mode);
-        }
-
         self.mmu.write(addr, value);
         match addr {
             // LYC=LY flag should be updated constantly
             LYC => {
-                self.gpu.update(&mut self.mmu);
+                self.gpu.update_ly(&mut self.mmu);
             },
             // Write to DIV resets it to 0
             DIV => {

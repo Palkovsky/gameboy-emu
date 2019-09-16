@@ -2,7 +2,7 @@
 
 use super::*;
 
-const CPU_FREQUENCY: u32 = 1 << 20;
+const CPU_FREQUENCY: u32 = (1 << 20);
 const SEQUENCER_FREQUENCY: u32 = 512;
 const SEQUENCER_UPDATE_RATE: u16 = (CPU_FREQUENCY / SEQUENCER_FREQUENCY) as u16;
 const SEQUENCER_STEP_COUNT: u16 = 8;
