@@ -966,7 +966,7 @@ impl CPU {
         let Instruction {
             size,
             handler: mut f,
-            mnemo: _,
+            mnemo
         } = decode(op)
             .unwrap_or_else(|| panic!("Unrecognized OPCODE 0x{:x} at 0x{:x}. {:?}", op, pc, self));
         let argc = size - 1;
@@ -980,6 +980,8 @@ impl CPU {
         } else {
             0
         };
+
+        // println!("PC 0x:{:4x}, {}", self.PC.val(), mnemo);
 
         if !self.HALT_BUG {
             self.PC.set(safe_w_add(self.PC.val(), size as u16));
@@ -1013,7 +1015,7 @@ impl CPU {
             // If it's stopped only JOYPAD interrupt can resume.
             // if self.STOP && bit != JOYPAD_INT { continue; }
             if is_requested(bit) {
-                // println!("INT {}, IME: {}, H: {}", bit, self.IME, self.HALT);
+                println!("INT {}, IME: {}, H: {}", bit, self.IME, self.HALT);
                 let mut cycles = 0;
                 if self.IME {
                     self.call(state, IVT[bit] as u16);

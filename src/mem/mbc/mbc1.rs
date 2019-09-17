@@ -51,7 +51,7 @@ impl BankController for MBC1 {
         // 0x2000-0x4000 - ROM bank switch
         // Bank idx: XXXBBBBB
         if addr >= 0x2000 && addr < 0x4000 {
-            let mut masked = value & 0b10011111;
+            let mut masked = value & 0b00011111;
             if masked == 0 { masked = 1; }
             self.idx = (self.idx & 0b11100000) + masked;
 
@@ -64,7 +64,7 @@ impl BankController for MBC1 {
         if addr >= 0x4000 && addr < 0x6000 {
             println!("2bit switch: 0x{:x}", value);
             let masked = (value & 0x3) << 5;
-            self.idx = masked | (self.idx & 0b10011111);
+            self.idx = masked | (self.idx & 0b00011111);
         }
         // 0x6000 - 0x8000 -> Banking Mode(RAM/ROM)
         // For ROM(8KB RAM, 2MB ROM): XXXXXXX1, for RAM(32KB RAM, 512KB ROM): XXXXXXX0
@@ -81,18 +81,14 @@ impl BankController for MBC1 {
         } else {
             0b00011111
         };
-        let mut rom_idx = self.idx & mask;
-        if rom_idx & 0x1F == 0 {
-            rom_idx += 1;
-        }
-
+        let rom_idx = self.idx & mask;
         let start = (rom_idx as usize) * ROM_BANK_SIZE;
         let end = start + ROM_BANK_SIZE;
         Some(&mut self.rom[start..end])
     }
 
     fn get_switchable_ram(&mut self) -> Option<MutMem> {
-        if !self.ram_enabled { return None }
+        //if !self.ram_enabled { return None }
 
         let mask = if self.banking_mode == RAM_MODE {
             0b01100000

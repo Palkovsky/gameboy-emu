@@ -122,14 +122,15 @@ impl<T: BankController> Clocked<T> for GPU {
             }
             GPUMode::LCD_TRANSFER => {
                 for _ in 0..4 {
+                    if self.lx == SCREEN_WIDTH as u8 {
+                        GPU::_MODE(mmu, GPUMode::HBLANK);
+                        GPU::hblank_stat_int(mmu);
+                        break;
+                    }
                     if GPU::LCD_DISPLAY_ENABLE(mmu) {
                         self.draw_dot(mmu);
                     }
                     self.lx += 1;
-                }
-                if self.lx == SCREEN_WIDTH as u8 {
-                    GPU::_MODE(mmu, GPUMode::HBLANK);
-                    GPU::hblank_stat_int(mmu);
                 }
             }
             GPUMode::HBLANK => {
@@ -152,18 +153,17 @@ impl<T: BankController> Clocked<T> for GPU {
             }
             GPUMode::VBLANK => {
                 self.lx = 0;
-                self.ly = if self.ly as usize == SCREEN_HEIGHT + VBLANK_HEIGHT {
-                    0
-                } else {
-                    self.ly + 1
-                };
-                self.update_ly(mmu);
-                GPU::lyc_stat_int(mmu);
-                if self.ly == 0 {
+                if self.ly as usize == SCREEN_HEIGHT + VBLANK_HEIGHT {
+                    self.ly = 0;
                     self.wy = 0;
+                    self.update_ly(mmu);
                     GPU::_MODE(mmu, GPUMode::OAM_SEARCH);
                     GPU::oam_stat_int(mmu);
+                } else {
+                    self.ly += 1;
                 }
+                self.update_ly(mmu);
+                GPU::lyc_stat_int(mmu);
             }
         };
     }
