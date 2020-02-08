@@ -1,6 +1,6 @@
 # Gameboy Emulator
 
-Written in Rust.
+[![](http://img.youtube.com/vi/zxdKIvfu8_0/0.jpg)](http://www.youtube.com/watch?v=zxdKIvfu8_0)
 
 # Features
 
